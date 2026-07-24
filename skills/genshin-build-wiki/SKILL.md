@@ -196,16 +196,19 @@ curl -sG "https://wiki.biligame.com/ys/api.php" \
 - 禁止扩展到本 skill 未授权的数据源（除非用户当次明确要求）
 - 禁止输出外挂、内存修改、自动化脚本用于破坏公平性
 
-## 工具选择
+## 工具选择（Claude / Codex / 其他 Agent 通用）
 
-| 步骤 | 工具 |
-|------|------|
-| BWiki API | Bash/`curl`（或等价 HTTP） |
-| 页面正文可读化 | agent-reach 网页通道 / `https://r.jina.ai/<URL>` |
+本 skill **不绑定** 单一 Agent 产品。用当前环境里可用的 HTTP / 网页阅读能力即可：
+
+| 步骤 | 工具（按可用性选用） |
+|------|----------------------|
+| BWiki API | Shell `curl` / 任意 HTTP 客户端 |
+| 页面正文可读化 | `https://r.jina.ai/<URL>`、agent-reach web 通道、或其他网页阅读工具 |
 | 多页互不依赖 | 可并行请求 |
 | 复杂长文对比 | 先抽章节标题，再只读相关 section |
 
-若存在 `agent-reach` skill：读网页前按其 web 通道规范执行，并声明使用了该通道。
+若环境里有 `agent-reach`：读网页前按其 web 通道规范执行，并声明使用了该通道。  
+没有也不影响：直接用 `curl` + Jina Reader / 等价方案。
 
 ## 自检清单（回答前）
 

@@ -1,0 +1,18 @@
+{
+  "name": "paimon-skill-dev",
+  "description": "Development marketplace for Paimon-Skill",
+  "owner": {
+    "name": "KazeLiu"
+  },
+  "plugins": [
+    {
+      "name": "paimon-skill",
+      "description": "Genshin Impact build and wiki lookup skills (BWiki + 原神观测枢)",
+      "version": "0.1.0",
+      "source": "./",
+      "author": {
+        "name": "KazeLiu"
+      }
+    }
+  ]
+}

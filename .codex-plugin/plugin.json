@@ -1,0 +1,40 @@
+{
+  "name": "paimon-skill",
+  "version": "0.1.0",
+  "description": "Genshin Impact build and wiki lookup skills for coding agents: artifacts, weapons, character builds, teams from BWiki and 原神观测枢.",
+  "author": {
+    "name": "KazeLiu",
+    "url": "https://github.com/KazeLiu"
+  },
+  "homepage": "https://github.com/KazeLiu/Paimon-Skill",
+  "repository": "https://github.com/KazeLiu/Paimon-Skill",
+  "license": "MIT",
+  "keywords": [
+    "genshin",
+    "原神",
+    "skills",
+    "wiki",
+    "artifacts",
+    "weapons",
+    "builds"
+  ],
+  "skills": "./skills/",
+  "hooks": {},
+  "interface": {
+    "displayName": "Paimon Skill",
+    "shortDescription": "原神配装 / 图鉴按需查询",
+    "longDescription": "Use Paimon Skill to look up Genshin Impact artifact sets, weapons, character builds, and teams from B站原神WIKI and 米游社原神观测枢, with cited sources and no whole-site scraping.",
+    "developerName": "KazeLiu",
+    "category": "Productivity",
+    "capabilities": [
+      "Interactive",
+      "Read"
+    ],
+    "defaultPrompt": [
+      "胡桃圣遗物和武器怎么配？",
+      "绝缘之旗印适合哪些角色？"
+    ],
+    "websiteURL": "https://github.com/KazeLiu/Paimon-Skill",
+    "brandColor": "#6EC5FF"
+  }
+}

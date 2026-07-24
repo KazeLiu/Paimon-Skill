@@ -1,0 +1,19 @@
+{
+  "name": "paimon-skill",
+  "version": "0.1.0",
+  "description": "Paimon skills pack for coding agents: Genshin Impact build and wiki lookup",
+  "private": true,
+  "keywords": [
+    "skills",
+    "genshin",
+    "原神",
+    "codex",
+    "claude",
+    "agents"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/KazeLiu/Paimon-Skill.git"
+  },
+  "license": "MIT"
+}

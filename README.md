@@ -1,23 +1,35 @@
 # Paimon-Skill
 
-派蒙技能包：给 Claude Code 用的**原神配装 / 图鉴查询** skill。  
-按需查询公开资料，回答圣遗物、武器、角色配装、配队等问题。
+派蒙技能包：给 **Claude Code / Codex / 其他兼容 Agent** 用的原神配装与图鉴查询 skills。  
+结构对齐 [superpowers](https://github.com/obra/superpowers)：**`skills/` 为唯一 skill 正文**，各 Agent 用插件元数据指向同一目录，而不是绑死在 `.claude` 里。
 
 ## 仓库结构
 
 ```text
 Paimon-Skill/
 ├── README.md
-└── .claude/
-    └── skills/
-        └── genshin-build-wiki/
-            ├── SKILL.md
-            └── references/
-                ├── sources.md
-                └── query-cheatsheet.md
+├── AGENTS.md                 # 跨 Agent 使用约定
+├── CLAUDE.md                 # Claude Code 入口提示
+├── package.json
+├── .claude-plugin/           # Claude 插件 / marketplace 元数据
+│   ├── plugin.json
+│   └── marketplace.json
+├── .codex-plugin/            # Codex 插件元数据（skills → ./skills/）
+│   └── plugin.json
+└── skills/                   # ★ 权威 skill 目录（Claude / Codex 共用）
+    └── genshin-build-wiki/
+        ├── SKILL.md
+        └── references/
+            ├── sources.md
+            └── query-cheatsheet.md
 ```
 
-Claude Code 会从项目内 `.claude/skills/` 发现 skill。
+| 路径 | 作用 |
+|------|------|
+| `skills/` | skill 正文（改这里即可） |
+| `.codex-plugin/` | Codex 发现 `./skills/` |
+| `.claude-plugin/` | Claude 插件/marketplace 元数据 |
+| `AGENTS.md` | 任意 Agent 打开本仓库时的约定 |
 
 ## Skill：`genshin-build-wiki`
 
@@ -25,59 +37,65 @@ Claude Code 会从项目内 `.claude/skills/` 发现 skill。
 |----|------|
 | 名称 | `genshin-build-wiki` |
 | 用途 | 原神圣遗物 / 武器 / 角色配装 / 配队查询与摘要 |
-| 数据源 | 仅 B站原神 WIKI + 米游社原神观测枢 |
+| 数据源 | [B站原神 WIKI](https://wiki.biligame.com/ys/首页) + [原神观测枢](https://baike.mihoyo.com/ys/obc/?visit_device=pc&bbs_presentation_style=no_header) |
 | 策略 | 按需拉页，禁止整站爬取；回答必须带来源链接 |
-
-### 数据源
-
-1. [B站原神 WIKI](https://wiki.biligame.com/ys/首页)  
-   - API：`https://wiki.biligame.com/ys/api.php`（优先 `opensearch` / `parse`）
-2. [米游社 · 原神观测枢](https://baike.mihoyo.com/ys/obc/?visit_device=pc&bbs_presentation_style=no_header)
+| 运行时 | Shell `curl` / HTTP + 网页阅读（Jina 等），**不绑定** 单一 Agent |
 
 ## 如何使用
 
-### 1. 打开本仓库作为工作区
+### 方式 A：以本仓库为工作区（推荐联调）
 
-在 Cursor / VS Code 中打开：
-
-```text
-D:\code\Paimon-Skill
-```
-
-（或你本机的克隆路径。）确保 Claude Code 以**该文件夹为项目根**启动，这样会加载：
+1. 用 Claude Code、Codex 或兼容 IDE **打开** `D:\code\Paimon-Skill`（或你的克隆路径）为项目根。  
+2. 新开对话，直接问原神问题，或手动点名：
 
 ```text
-.claude/skills/genshin-build-wiki/SKILL.md
+使用 genshin-build-wiki skill 查询：胡桃圣遗物和武器怎么配？
 ```
 
-### 2. 自动触发
+### 方式 B：装进个人 skills 目录（全局）
 
-直接问原神相关问题即可，例如：
+把 `skills/genshin-build-wiki` **复制或链接**到你当前 Agent 的 skills 目录，例如：
+
+```text
+# Claude Code（示例）
+~/.claude/skills/genshin-build-wiki
+
+# Codex（示例）
+~/.codex/skills/genshin-build-wiki
+
+# 通用 agents 路径（若使用）
+~/.agents/skills/genshin-build-wiki
+```
+
+Windows 可用目录联接，避免维护多份副本：
+
+```powershell
+# 示例：Claude
+New-Item -ItemType Junction `
+  -Path "$env:USERPROFILE\.claude\skills\genshin-build-wiki" `
+  -Target "D:\code\Paimon-Skill\skills\genshin-build-wiki"
+
+# 示例：Codex
+New-Item -ItemType Junction `
+  -Path "$env:USERPROFILE\.codex\skills\genshin-build-wiki" `
+  -Target "D:\code\Paimon-Skill\skills\genshin-build-wiki"
+```
+
+### 方式 C：插件元数据
+
+- Codex：见 `.codex-plugin/plugin.json` 的 `"skills": "./skills/"`  
+- Claude：见 `.claude-plugin/plugin.json` 与 `marketplace.json`  
+
+具体安装命令随 Agent 版本变化，以各产品文档为准；**skill 正文始终只维护 `skills/` 一份**。
+
+## 示例问题
 
 - 胡桃圣遗物和武器怎么配？
 - 绝缘之旗印适合哪些角色？
 - 那维莱特主词条和副词条优先级？
 - 芙宁娜配队推荐？
 
-命中 `description` 中的触发条件时，Claude 应读取本 skill 并按流程查询。
-
-### 3. 手动触发（更稳）
-
-在对话里明确写出：
-
-```text
-使用 genshin-build-wiki skill 查询：……
-```
-
-或在支持 slash 的环境下尝试：
-
-```text
-/genshin-build-wiki
-```
-
-（具体是否显示 slash 取决于 Claude Code / 扩展版本。）
-
-### 4. 合格回答长什么样
+## 合格回答长什么样
 
 1. 会实际查询 BWiki / 观测枢（不是纯背答案）  
 2. 结构接近：结论 → 依据摘要 → 注意事项 → 来源  
@@ -89,18 +107,17 @@ D:\code\Paimon-Skill
 
 | 能力 | 用途 |
 |------|------|
-| 终端 `curl` | 调 BWiki MediaWiki API |
-| 网页阅读（如 Jina Reader / agent-reach web） | 读观测枢或 API 难解析的页面 |
+| 终端 `curl` 或等价 HTTP | BWiki MediaWiki API |
+| 网页阅读（Jina Reader 等） | 观测枢或难解析页面 |
 | 可访问外网 | 两站均为在线公开站 |
 
 无需把 wiki 整站下载到本仓库。
 
-## 本地开发说明
+## 本地开发
 
-- 改 skill：编辑 `.claude/skills/genshin-build-wiki/SKILL.md`  
-- 补数据源说明：`references/sources.md`  
-- 补命令示例：`references/query-cheatsheet.md`  
-- 改完后**新开对话**再测自动发现更干净；同对话也可手动点名 skill 名联调  
+- 改 skill：只编辑 `skills/genshin-build-wiki/SKILL.md` 与 `references/`  
+- 改跨端约定：`AGENTS.md`  
+- 改完后**新开对话**再测自动发现更干净  
 
 ## 合规
 
