@@ -42,10 +42,29 @@ https://wiki.biligame.com/ys/api.php
 
 MediaWiki 实例；优先 `opensearch` + `parse` / `query`。
 
+### 网页阅读（按 agent-reach 优先级）
+
+当 API 解析困难或需要可读文本时：
+
+1. **Jina Reader**（零配置，首选）
+   ```bash
+   curl -s "https://r.jina.ai/https://wiki.biligame.com/ys/<页面名 URL 编码>"
+   ```
+
+2. **web-reader MCP**（若已安装）
+   ```bash
+   mcporter call 'web-reader.webReader(url: "https://wiki.biligame.com/ys/<页面名>")'
+   ```
+
+**环境检测**：首次使用 web-reader MCP 失败时，询问用户是否安装。
+
 ## 观测枢
 
 - 桌面入口带参数：`visit_device=pc&bbs_presentation_style=no_header`
 - 内容偏官方百科结构；条目 URL 以站点内跳转为准
+- **网页访问优先级**（按 agent-reach 规范）：
+  1. Jina Reader（`curl -s "https://r.jina.ai/<条目URL>"`）
+  2. web-reader MCP（若已安装）
 - 若 SPA 导致阅读器拿不到正文：记录失败，回退 BWiki，不擅自换源
 
 ## 双源分工建议

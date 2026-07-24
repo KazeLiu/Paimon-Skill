@@ -36,12 +36,21 @@ curl -sG "https://wiki.biligame.com/ys/api.php" \
   --data-urlencode "format=json"
 ```
 
-## 可读正文兜底（任意 URL）
+## 网页正文阅读（按 agent-reach 优先级）
+
+**优先级**：Jina Reader（零配置首选） → web-reader MCP（若已安装）
 
 ```bash
-curl -sL "https://r.jina.ai/https://wiki.biligame.com/ys/%E8%83%A1%E6%A1%83"
-curl -sL "https://r.jina.ai/https://baike.mihoyo.com/ys/obc/?visit_device=pc&bbs_presentation_style=no_header"
+# 1. Jina Reader（零配置，首选）
+curl -s "https://r.jina.ai/https://wiki.biligame.com/ys/%E8%83%A1%E6%A1%83"
+curl -s "https://r.jina.ai/https://baike.mihoyo.com/ys/obc/?visit_device=pc&bbs_presentation_style=no_header"
+
+# 2. web-reader MCP（若已安装）
+mcporter call 'web-reader.webReader(url: "https://wiki.biligame.com/ys/胡桃")'
+mcporter call 'web-reader.webReader(url: "https://baike.mihoyo.com/ys/obc/...")'
 ```
+
+**环境检测**：首次使用 web-reader MCP 失败时，询问用户是否安装。
 
 对 OBC 具体条目，把 URL 换成条目直链效果更好。
 
@@ -60,5 +69,7 @@ curl -sL "https://r.jina.ai/https://baike.mihoyo.com/ys/obc/?visit_device=pc&bbs
 |------|------|
 | opensearch 无结果 | 换同义词/简称/全名再搜 |
 | parse 页不存在 | 用搜索返回的精确标题 |
-| Jina/阅读器空正文 | 换 API；OBC 失败则只用 BWiki 并声明 |
+| Jina Reader 空正文 | 尝试 web-reader MCP；若都失败则用 API 或声明失败 |
+| web-reader MCP 不可用 | 询问用户是否安装；用户拒绝或跳过则继续用 Jina Reader |
+| OBC 阅读失败 | 只用 BWiki 并声明「观测枢本页未能解析」 |
 | 两源都缺某字段 | 回答写「未在指定数据源查到」，不要编 |
