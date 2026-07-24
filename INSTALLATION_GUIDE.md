@@ -1,300 +1,135 @@
-# Paimon-Skill 自动安装指南
+# Paimon-Skill 安装指南
 
-本文档供 AI Agent 使用，用于自动化安装 Paimon-Skill 及其依赖。
+本文供 Agent 在用户明确要求安装 Paimon-Skill 时使用。安装 skill 与安装可选社区依赖是两个独立步骤。
 
-## 安装流程
-
-当用户说「帮我安装 Paimon-Skill：https://github.com/KazeLiu/Paimon-Skill」时，按以下步骤执行：
-
-### 1. 检测环境
+## 1. 检查环境
 
 ```bash
-# 检测 Node.js 版本
-node --version  # 要求 >= 16.0.0
-
-# 检测 npm 版本
-npm --version   # 要求 >= 7.0.0
-
-# 检测 git（如果需要克隆）
 git --version
+node --version
+npm --version
 ```
 
-如果 Node.js 或 npm 版本不符合要求，提示用户升级。
+Node.js 18+ 仅用于依赖检测与项目测试。缺少 Node.js 时，仍可安装纯文档 skill，但无法运行检测脚本。
 
----
+## 2. 获取仓库
 
-### 2. 获取仓库
-
-**方案 A：克隆（推荐）**
+优先克隆到用户指定的新目录：
 
 ```bash
-# 克隆到用户指定位置或默认位置
 git clone https://github.com/KazeLiu/Paimon-Skill.git
 cd Paimon-Skill
 ```
 
-**方案 B：下载 ZIP（备选）**
+目标目录已存在时不要覆盖或直接拉取。先确认它是 Git 仓库、远程地址属于本项目且工作树没有未提交改动；任一条件不满足就停止并询问用户。
+
+## 3. 检测可选依赖
 
 ```bash
-# 如果用户没有 git 或克隆失败
-curl -L https://github.com/KazeLiu/Paimon-Skill/archive/refs/heads/main.zip -o paimon-skill.zip
-unzip paimon-skill.zip
-cd Paimon-Skill-main
+node skills/genshin-build-wiki/check-dependencies.js --json
 ```
 
----
+检测器不安装软件、不写状态文件。若 OpenCLI 缺失，告诉用户社区查询不可用，但 BWiki/OBC 仍可使用，并询问是否安装。若 OpenCLI 存在但所需平台能力为 `false`，说明缺少的平台子命令并询问是否更新或修复。
 
-### 3. 安装依赖
-
-运行自动依赖检测脚本：
+只有用户明确同意安装、更新或修复后才执行：
 
 ```bash
-cd skills/genshin-build-wiki
-node check-dependencies.js
+npm install -g @jackwener/opencli
 ```
 
-此脚本会：
-- 检测 `opencli` 是否已安装
-- 未安装时自动执行 `npm install -g @panniantong/opencli`
-- 保存依赖状态到 `.dependency-status.json`
+安装完成后重新运行检测。用户拒绝时跳过，不把它当作 skill 安装失败。
 
-**注意**：OpenCLI 自带 `bilibili` 子命令，支持小红书、知乎、B站查询，无需单独安装其他工具。
+## 4. 链接到 Agent skills 目录
 
-**预期输出：**
+根据实际 Agent 选择目标目录：
 
-```
-═══════════════════════════════════════════════════════════
-🎮 Genshin Build Wiki Skill - 依赖检测
-═══════════════════════════════════════════════════════════
-
-🔍 检测 OpenCLI...
-✓ OpenCLI 已安装: 1.8.6
-
-───────────────────────────────────────────────────────────
-📊 依赖检测结果汇总
-───────────────────────────────────────────────────────────
-
-✓ 官方 Wiki 查询 (BWiki + 观测枢): 使用 Jina Reader
-✓ 小红书/知乎/B站社区讨论: OpenCLI 可用（含 B站搜索）
-
-═══════════════════════════════════════════════════════════
-
-✓ 状态已保存到 .dependency-status.json
+```text
+Claude Code: ~/.claude/skills/genshin-build-wiki
+Codex:       ~/.codex/skills/genshin-build-wiki
+通用 Agent:  ~/.agents/skills/genshin-build-wiki
 ```
 
-**处理失败情况：**
+### Windows
 
-如果依赖安装失败（返回码 1），告知用户：
-
-```
-⚠️ OpenCLI 安装失败，但不影响基础功能。
-
-Paimon-Skill 会使用降级模式：
-- ✅ 官方 Wiki 查询（BWiki + 观测枢）正常工作
-- ⚠️ 社区讨论功能（小红书/知乎/B站）不可用
-
-你可以稍后手动安装依赖：
-npm install -g @panniantong/opencli
-```
-
----
-
-### 4. 链接到 Agent skills 目录
-
-**检测当前 Agent 类型：**
-
-```bash
-# Claude Code
-if [ -d "$HOME/.claude" ]; then
-  AGENT_TYPE="claude"
-  SKILLS_DIR="$HOME/.claude/skills"
-fi
-
-# Codex
-if [ -d "$HOME/.codex" ]; then
-  AGENT_TYPE="codex"
-  SKILLS_DIR="$HOME/.codex/skills"
-fi
-
-# 通用
-if [ -d "$HOME/.agents" ]; then
-  AGENT_TYPE="generic"
-  SKILLS_DIR="$HOME/.agents/skills"
-fi
-```
-
-**创建链接（Windows）：**
+以下示例使用 Claude Code 目标；其他 Agent 只替换 `$target`。它只会移除指向同一源码的现有链接，绝不会递归删除普通目录。
 
 ```powershell
-# 确保目标目录存在
-New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\.claude\skills"
+$source = [IO.Path]::GetFullPath("D:\code\Paimon-Skill\skills\genshin-build-wiki")
+$target = [IO.Path]::GetFullPath("$env:USERPROFILE\.claude\skills\genshin-build-wiki")
+$parent = Split-Path -Parent $target
+New-Item -ItemType Directory -Force -Path $parent | Out-Null
 
-# 创建 junction（目录联接）
-$source = "D:\code\Paimon-Skill\skills\genshin-build-wiki"
-$target = "$env:USERPROFILE\.claude\skills\genshin-build-wiki"
+if (Test-Path -LiteralPath $target) {
+    $item = Get-Item -LiteralPath $target -Force
+    if ($item.LinkType -notin @('Junction', 'SymbolicLink')) {
+        throw "目标已存在且不是链接，停止安装：$target"
+    }
 
-# 如果已存在，先删除
-if (Test-Path $target) {
-    Remove-Item $target -Recurse -Force
+    $linkedTarget = [IO.Path]::GetFullPath([string]@($item.Target)[0])
+    if ($linkedTarget -ne $source) {
+        throw "目标链接指向其他位置，停止安装：$linkedTarget"
+    }
+
+    Remove-Item -LiteralPath $target -Force
 }
 
-New-Item -ItemType Junction -Path $target -Target $source
+New-Item -ItemType Junction -Path $target -Target $source | Out-Null
 ```
 
-**创建链接（macOS/Linux）：**
+### macOS/Linux
 
 ```bash
-# 确保目标目录存在
-mkdir -p ~/.claude/skills
+source_path="$(pwd)/skills/genshin-build-wiki"
+target_path="$HOME/.claude/skills/genshin-build-wiki"
+mkdir -p "$(dirname "$target_path")"
 
-# 创建符号链接
-ln -sf "$(pwd)/skills/genshin-build-wiki" ~/.claude/skills/genshin-build-wiki
-```
-
----
-
-### 5. 验证安装
-
-```bash
-# 检查链接是否创建成功
-ls -la ~/.claude/skills/genshin-build-wiki
-
-# 检查 SKILL.md 是否可读
-cat ~/.claude/skills/genshin-build-wiki/SKILL.md | head -5
-
-# 检查依赖状态
-cat ~/.claude/skills/genshin-build-wiki/.dependency-status.json
-```
-
----
-
-### 6. 完成反馈
-
-告知用户安装成功，并提供测试建议：
-
-```markdown
-✅ Paimon-Skill 安装完成！
-
-📦 安装内容：
-- ✓ Skill 已链接到 ~/.claude/skills/genshin-build-wiki
-- ✓ 依赖已安装：opencli (小红书/知乎) + bili-cli (B站)
-- ✓ 自动触发已配置：提到原神/派蒙/角色名时自动加载
-
-🎮 测试一下：
-- "派蒙！"
-- "胡桃怎么配？"
-- "绝缘之旗印适合哪些角色？"
-
-💡 提示：
-- 派蒙会用可爱的语气回答，综合官方 Wiki 和社区讨论
-- 如果你不想查社区讨论，可以说「只要官方推荐」
-- 详细文档：https://github.com/KazeLiu/Paimon-Skill
-```
-
----
-
-## 常见问题处理
-
-### Q: npm install -g 权限不足
-
-**Windows：**
-```powershell
-# 以管理员身份运行 PowerShell
-Start-Process powershell -Verb runAs
-npm install -g @panniantong/opencli
-```
-
-**macOS/Linux：**
-```bash
-sudo npm install -g @panniantong/opencli
-```
-
-### Q: Node.js 版本过低
-
-提示用户升级：
-
-```
-⚠️ 当前 Node.js 版本过低（需要 >= 16.0.0）
-
-请访问 https://nodejs.org/ 下载最新 LTS 版本，或使用 nvm/nvm-windows 管理多版本。
-```
-
-### Q: 用户想卸载
-
-```bash
-# 删除链接
-rm ~/.claude/skills/genshin-build-wiki  # macOS/Linux
-Remove-Item "$env:USERPROFILE\.claude\skills\genshin-build-wiki"  # Windows
-
-# 卸载依赖（可选）
-npm uninstall -g @panniantong/opencli
-
-# 删除仓库（可选）
-rm -rf /path/to/Paimon-Skill
-```
-
----
-
-## AI 安装脚本模板
-
-以下是完整的自动化脚本（供 AI 参考）：
-
-```bash
-#!/bin/bash
-set -e
-
-echo "🎮 开始安装 Paimon-Skill..."
-
-# 1. 检测环境
-echo "🔍 检测环境..."
-node --version || { echo "❌ 需要 Node.js >= 16"; exit 1; }
-npm --version || { echo "❌ 需要 npm >= 7"; exit 1; }
-
-# 2. 克隆仓库
-echo "📦 克隆仓库..."
-if [ -d "Paimon-Skill" ]; then
-    echo "⚠️  目录已存在，拉取最新代码..."
-    cd Paimon-Skill && git pull && cd ..
-else
-    git clone https://github.com/KazeLiu/Paimon-Skill.git
+if [ -e "$target_path" ] || [ -L "$target_path" ]; then
+  if [ ! -L "$target_path" ]; then
+    echo "目标已存在且不是符号链接，停止安装：$target_path" >&2
+    exit 1
+  fi
+  if [ "$(readlink "$target_path")" != "$source_path" ]; then
+    echo "目标链接指向其他位置，停止安装" >&2
+    exit 1
+  fi
+  rm "$target_path"
 fi
 
-cd Paimon-Skill
-
-# 3. 安装依赖
-echo "🔧 安装依赖..."
-cd skills/genshin-build-wiki
-node check-dependencies.js
-cd ../..
-
-# 4. 链接到 skills 目录
-echo "🔗 创建链接..."
-SKILLS_DIR="$HOME/.claude/skills"
-mkdir -p "$SKILLS_DIR"
-ln -sf "$(pwd)/skills/genshin-build-wiki" "$SKILLS_DIR/genshin-build-wiki"
-
-echo "✅ 安装完成！"
-echo "🎮 试试问派蒙：胡桃怎么配？"
+ln -s "$source_path" "$target_path"
 ```
 
----
+## 5. 验证
 
-## 更新 Skill
-
-当用户说「更新 Paimon-Skill」时：
+确认目标是链接且 `SKILL.md` 可读，然后运行：
 
 ```bash
-cd /path/to/Paimon-Skill
-git pull
-cd skills/genshin-build-wiki
-node check-dependencies.js  # 重新检测依赖
+node skills/genshin-build-wiki/check-dependencies.js --json
+npm test
 ```
 
----
+`npm test` 适用于仓库开发安装；仅链接单个 skill 时，只需检查 `SKILL.md` 和依赖检测输出。
 
-## 注意事项
+## 6. 完成反馈
 
-1. **首次使用前必须运行依赖检测脚本**
-2. **降级模式不影响基础功能**（官方 Wiki 查询始终可用）
-3. **OpenCLI 某些功能需要登录态**（AI 会在使用时引导配置）
-4. **仓库用 junction/symlink 而不是复制**（避免多份副本）
+向用户说明：
+
+- skill 链接到哪个 Agent 目录
+- OpenCLI 是否可用；若未安装，社区查询会被跳过
+- 检测器没有写入机器状态文件
+- 可用测试问题，如“胡桃怎么配”或“当前卡池是什么”
+
+## 更新
+
+更新前检查远程和工作树，存在本地改动时停止并交给用户决定：
+
+```bash
+git remote get-url origin
+git status --short
+git pull --ff-only
+node skills/genshin-build-wiki/check-dependencies.js --json
+npm test
+```
+
+## 卸载
+
+只移除确认属于本项目的 junction/symlink。普通目录、指向其他位置的链接和仓库源码都不得由安装流程自动删除。OpenCLI 也只在用户明确要求时单独卸载。

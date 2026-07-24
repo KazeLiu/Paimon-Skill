@@ -8,7 +8,7 @@
     {
       "name": "paimon-skill",
       "description": "Genshin Impact build and wiki lookup skills (BWiki + 原神观测枢)",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "source": "./",
       "author": {
         "name": "KazeLiu"

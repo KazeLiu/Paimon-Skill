@@ -1,6 +1,6 @@
 {
   "name": "paimon-skill",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Paimon skills pack for coding agents: Genshin Impact build and wiki lookup",
   "private": true,
   "keywords": [
@@ -15,5 +15,11 @@
     "type": "git",
     "url": "https://github.com/KazeLiu/Paimon-Skill.git"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "scripts": {
+    "test": "node --test tests/check-dependencies.test.js tests/validate-skill.test.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
 }

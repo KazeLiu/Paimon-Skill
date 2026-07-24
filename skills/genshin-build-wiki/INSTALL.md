@@ -1,117 +1,58 @@
-# Genshin Build Wiki Skill - 安装指南
+# 可选社区依赖
 
-本 skill 需要一些外部依赖才能正常工作。AI 会在首次使用时自动检测并安装这些依赖。
+基础的 BWiki 与 OBC 查询只需要 HTTP/网页阅读能力。OpenCLI 仅用于小红书、知乎和 B站社区内容。
 
-## 自动安装依赖
-
-当 AI 首次加载本 skill 时，会自动执行以下检查与安装：
-
-### 1. OpenCLI（小红书/知乎/B站查询）
+## 检测
 
 ```bash
-# 检测
-opencli --version
-
-# 未安装时自动执行
-npm install -g @panniantong/opencli
+node check-dependencies.js
+node check-dependencies.js --json
 ```
 
-**用途**：
-- 查询小红书和知乎的社区讨论
-- 查询B站视频（OpenCLI 自带 `bilibili` 子命令）
+脚本检测 `opencli --version`，并分别验证 `xiaohongshu/zhihu/bilibili` 子命令：
 
-**功能**：`xiaohongshu`, `zhihu`, `bilibili` 等 60+ 平台
+- 不安装任何软件
+- 不修改全局环境
+- 不创建 `.dependency-status.json`
+- OpenCLI 缺失时仍返回正常检测结果
 
-### 2. 网页阅读工具（可选）
+## 缺失时的处理
 
-- **Jina Reader**：无需安装，公开免费接口
-- **web-reader MCP**：可选，AI 会在首次失败时询问是否安装
+Agent 应告知用户：基础百科查询仍然可用，但社区经验暂不可查。随后询问用户是否安装 OpenCLI。若 OpenCLI 已存在但所需平台能力为 `false`，应指出缺少的平台子命令并询问是否更新或修复。
 
----
-
-## 手动安装（可选）
-
-如果你希望提前安装这些依赖，可以手动执行：
+只有用户明确同意安装、更新或修复后，才执行当前 npm 发布包：
 
 ```bash
-# 安装 OpenCLI（包含小红书/知乎/B站支持）
-npm install -g @panniantong/opencli
+npm install -g @jackwener/opencli
+```
 
-# 验证安装
+安装后重新运行检测。用户拒绝时直接使用 BWiki + OBC，不反复询问，也不把未查询的社区内容写进回答。
+
+## 登录与隐私
+
+OpenCLI 某些平台功能复用本机浏览器登录态。需要登录时：
+
+1. 请用户在本机浏览器打开并登录对应平台。
+2. 登录完成后重新检测或执行查询。
+3. 不要求用户在对话中粘贴 Cookie、令牌或账号密码。
+4. 不把凭据写入仓库、缓存文件或日志。
+
+## 验证
+
+```bash
 opencli --version
+opencli bilibili --help
+opencli xiaohongshu --help
 ```
 
----
-
-## 依赖检测流程
-
-AI 会按以下流程自动处理依赖：
-
-```
-加载 genshin-build-wiki skill
-    ↓
-检测 opencli --version
-    ├─ 成功 → 标记为可用（小红书/知乎/B站全部可用）
-    └─ 失败 → 自动安装 npm install -g @panniantong/opencli
-              ↓
-              安装后再次验证
-              ├─ 成功 → 标记为可用
-              └─ 失败 → 记录错误，降级到仅官方数据模式
-    ↓
-开始正常使用 skill
-```
-
----
-
-## 降级模式
-
-即使依赖安装失败，skill 仍可正常工作（功能受限）：
-
-| 依赖 | 失败后影响 | 降级方案 |
-|------|-----------|---------|
-| OpenCLI | 无法查询小红书/知乎/B站 | 仅使用官方数据（BWiki + 观测枢） |
-| web-reader MCP | OBC 解析可能失败 | 使用 Jina Reader 兜底 |
-
----
-
-## 常见问题
-
-### Q: 为什么需要这些依赖？
-
-A: 本 skill 综合官方 Wiki 和社区讨论，OpenCLI 用于访问社交平台获取玩家实战反馈。
-
-### Q: 不想安装这些依赖可以吗？
-
-A: 可以！skill 会降级到仅使用官方数据模式，只查询 BWiki 和观测枢。
-
-### Q: npm install 失败怎么办？
-
-A: 确认已安装 Node.js（>=16）和 npm。或者使用降级模式，仅用官方数据。
-
-### Q: OpenCLI 需要登录吗？
-
-A: 小红书和知乎的搜索功能需要登录态。AI 会引导你使用 Cookie-Editor 导出 Cookie 进行配置。
-
-### Q: OpenCLI 能查 B站吗？
-
-A: 能！OpenCLI 自带 `bilibili` 子命令，支持搜索视频、获取字幕等功能，无需单独安装 bili-cli。
-
----
-
-## 环境要求
-
-- **Node.js**: >= 16.0.0
-- **npm**: >= 7.0.0
-- **网络**: 需要访问外网（BWiki、观测枢、小红书、知乎、B站）
-
----
+具体平台命令见 [references/social-platforms.md](references/social-platforms.md)。
 
 ## 卸载
 
-如果不再需要这些依赖：
+只有用户明确要求移除 OpenCLI 时才执行：
 
 ```bash
-npm uninstall -g @panniantong/opencli
+npm uninstall -g @jackwener/opencli
 ```
 
-Skill 会自动降级到仅官方数据模式。
+卸载 OpenCLI 不影响 BWiki 与 OBC 查询。

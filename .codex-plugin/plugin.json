@@ -1,7 +1,7 @@
 {
   "name": "paimon-skill",
-  "version": "0.1.0",
-  "description": "Genshin Impact build and wiki lookup skills for coding agents: artifacts, weapons, character builds, teams from BWiki and 原神观测枢.",
+  "version": "0.2.0",
+  "description": "Genshin Impact build, wiki, and current-information lookup skill with explicit source authority and freshness.",
   "author": {
     "name": "KazeLiu",
     "url": "https://github.com/KazeLiu"
@@ -23,7 +23,7 @@
   "interface": {
     "displayName": "Paimon Skill",
     "shortDescription": "原神配装 / 图鉴按需查询",
-    "longDescription": "Use Paimon Skill to look up Genshin Impact artifact sets, weapons, character builds, and teams from B站原神WIKI and 米游社原神观测枢, with cited sources and no whole-site scraping.",
+    "longDescription": "Look up Genshin Impact artifacts, weapons, builds, teams, mechanics, and current information from first-party OBC data, the community-maintained BWiki, and optional community sources, with citations and freshness metadata.",
     "developerName": "KazeLiu",
     "category": "Productivity",
     "capabilities": [

@@ -1,75 +1,56 @@
-# 查询速查
+# 查询命令速查
 
-## BWiki：搜索
+命令应按当前 Shell 适配。Windows PowerShell 使用 `curl.exe` 可避免 `curl` 别名差异；其他环境可使用 `curl` 或等价 HTTP 客户端。
 
-```bash
-curl -sG "https://wiki.biligame.com/ys/api.php" \
-  --data-urlencode "action=opensearch" \
-  --data-urlencode "search=绝缘之旗印" \
-  --data-urlencode "limit=8" \
-  --data-urlencode "format=json"
-```
-
-返回一般为：`[查询词, [标题...], [描述...], [URL...]]`。
-
-## BWiki：解析页面 HTML
+## BWiki：搜索标题
 
 ```bash
-curl -sG "https://wiki.biligame.com/ys/api.php" \
-  --data-urlencode "action=parse" \
-  --data-urlencode "page=绝缘之旗印" \
-  --data-urlencode "prop=text|sections|displaytitle" \
-  --data-urlencode "format=json"
+curl -sS -G "https://wiki.biligame.com/ys/api.php" --data-urlencode "action=opensearch" --data-urlencode "search=绝缘之旗印" --data-urlencode "limit=8" --data-urlencode "format=json"
 ```
 
-从 JSON 的 `parse.text.*` 取 HTML 后再摘要；`sections` 用于只读相关章节。
+返回通常为：`[查询词, [标题...], [描述...], [URL...]]`。
 
-## BWiki：取 wikitext
+## BWiki：解析页面
 
 ```bash
-curl -sG "https://wiki.biligame.com/ys/api.php" \
-  --data-urlencode "action=query" \
-  --data-urlencode "prop=revisions" \
-  --data-urlencode "rvprop=content" \
-  --data-urlencode "rvslots=main" \
-  --data-urlencode "titles=胡桃" \
-  --data-urlencode "format=json"
+curl -sS -G "https://wiki.biligame.com/ys/api.php" --data-urlencode "action=parse" --data-urlencode "page=绝缘之旗印" --data-urlencode "prop=text|sections|displaytitle" --data-urlencode "format=json"
 ```
 
-## 网页正文阅读（按 agent-reach 优先级）
+只摘要相关章节，不整页复制。`parse.text.*` 是 HTML，`sections` 可帮助定位章节。
 
-**优先级**：Jina Reader（零配置首选） → web-reader MCP（若已安装）
+## BWiki：读取 wikitext
 
 ```bash
-# 1. Jina Reader（零配置，首选）
-curl -s "https://r.jina.ai/https://wiki.biligame.com/ys/%E8%83%A1%E6%A1%83"
-curl -s "https://r.jina.ai/https://baike.mihoyo.com/ys/obc/?visit_device=pc&bbs_presentation_style=no_header"
-
-# 2. web-reader MCP（若已安装）
-mcporter call 'web-reader.webReader(url: "https://wiki.biligame.com/ys/胡桃")'
-mcporter call 'web-reader.webReader(url: "https://baike.mihoyo.com/ys/obc/...")'
+curl -sS -G "https://wiki.biligame.com/ys/api.php" --data-urlencode "action=query" --data-urlencode "prop=revisions" --data-urlencode "rvprop=content" --data-urlencode "rvslots=main" --data-urlencode "titles=胡桃" --data-urlencode "format=json"
 ```
 
-**环境检测**：首次使用 web-reader MCP 失败时，询问用户是否安装。
+## 网页正文阅读
 
-对 OBC 具体条目，把 URL 换成条目直链效果更好。
+API 难解析或需要阅读 OBC 条目时，可用当前 Agent 已有的网页阅读能力。若环境提供 Jina Reader：
 
-## 角色配装最小请求集示例
+```bash
+curl -sS "https://r.jina.ai/https://wiki.biligame.com/ys/%E8%83%A1%E6%A1%83"
+curl -sS "https://r.jina.ai/<OBC条目URL>"
+```
 
-问题：`胡桃 圣遗物和武器怎么选`
+不要把 OBC 首页响应当作具体条目内容；先从导航定位条目直链。
 
-1. BWiki opensearch：`胡桃`
-2. BWiki parse：角色页（攻略段）
-3. OBC：胡桃条目（若能定位）
-4. 若攻略只写套装名未写效果：再 parse 套装页 / 武器页 **仅补缺**
+## 角色配装最小请求集
 
-## 失败回退
+问题：`胡桃圣遗物和武器怎么选`
+
+1. BWiki `opensearch`：定位胡桃精确页面。
+2. BWiki `parse`：读取角色攻略相关章节。
+3. OBC：读取胡桃条目的基础信息。
+4. 攻略未给出完整效果时，仅补查被推荐的套装/武器页面。
+5. 用户问实战取舍时，再按 [social-platforms.md](social-platforms.md) 查询社区。
+
+## 回退规则
 
 | 失败 | 动作 |
 |------|------|
-| opensearch 无结果 | 换同义词/简称/全名再搜 |
-| parse 页不存在 | 用搜索返回的精确标题 |
-| Jina Reader 空正文 | 尝试 web-reader MCP；若都失败则用 API 或声明失败 |
-| web-reader MCP 不可用 | 询问用户是否安装；用户拒绝或跳过则继续用 Jina Reader |
-| OBC 阅读失败 | 只用 BWiki 并声明「观测枢本页未能解析」 |
-| 两源都缺某字段 | 回答写「未在指定数据源查到」，不要编 |
+| `opensearch` 无结果 | 换简称、全名或同义词再搜 |
+| `parse` 页不存在 | 使用搜索返回的精确标题 |
+| 网页阅读正文为空 | 尝试具体条目 URL 或 BWiki API |
+| OBC 无法解析 | 仅用 BWiki，并声明 OBC 本页未核对 |
+| 两源均缺字段 | 写“未在指定来源查到”，不要编造 |
