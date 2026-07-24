@@ -1,6 +1,6 @@
 # Paimon-Skill — Agent 指引
 
-本仓库是 **Agent 无关** 的 skill 包（结构对齐 superpowers：`skills/` 为唯一正文来源）。
+本仓库是 **Agent 无关** 的 skill 包（`skills/` 为唯一正文来源）。
 
 ## 发现 skill
 

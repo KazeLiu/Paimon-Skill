@@ -1,7 +1,7 @@
 # Paimon-Skill
 
 派蒙技能包：给 **Claude Code / Codex / 其他兼容 Agent** 用的原神配装与图鉴查询 skills。  
-结构对齐 [superpowers](https://github.com/obra/superpowers)：**`skills/` 为唯一 skill 正文**，各 Agent 用插件元数据指向同一目录，而不是绑死在 `.claude` 里。
+**`skills/` 为唯一 skill 正文**，各 Agent 用插件元数据指向同一目录，而不是绑死在 `.claude` 里。
 
 ## 仓库结构
 
