@@ -39,7 +39,7 @@ node skills/genshin-build-wiki/check-dependencies.js --json
 npm install -g @jackwener/opencli
 ```
 
-安装完成后重新运行检测。用户拒绝时跳过，不把它当作 skill 安装失败。
+OpenCLI 还需要 Chrome 浏览器扩展（Browser Bridge）复用登录态才能真正查询——**完整两步安装（含扩展的应用商店 / 离线两种装法）见 [skills/genshin-build-wiki/INSTALL.md](skills/genshin-build-wiki/INSTALL.md)**。安装完成后重新运行检测。用户拒绝时跳过，不把它当作 skill 安装失败。
 
 ## 4. 链接到 Agent skills 目录
 
