@@ -3,10 +3,9 @@
 
   # Paimon-Skill
 
-  面向 Claude Code、Codex 与其他兼容 Agent 的原神攻略查询 skill。
+ 旅行者你好，我是派蒙，提瓦特最好的向导！
 </div>
 
-`skills/` 是唯一正文来源，插件元数据只负责发现这份目录。
 
 ## 怎么用（最简单）
     
