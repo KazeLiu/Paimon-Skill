@@ -1,6 +1,8 @@
-# Paimon-Skill 安装指南
+# Paimon-Skill 全局链接与依赖指南
 
-本文供 Agent 在用户明确要求安装 Paimon-Skill 时使用。安装 skill 与安装可选社区依赖是两个独立步骤。
+> **多数情况用不到本文。** 在 Paimon-Skill 目录里打开 Agent，直接问原神问题即可——根目录 [AGENTS.md](AGENTS.md) 已内联全部规则，进目录即生效。
+>
+> 本文只在两种情况下需要：(1) 用户想在**任意目录**唤起派蒙，需把 skill 链接到全局 skills 目录；(2) 需要查小红书/知乎/B站社区内容，需安装可选依赖 OpenCLI。链接 skill 与安装依赖是两个独立步骤，都要先征得用户同意。
 
 ## 1. 检查环境
 
@@ -14,7 +16,7 @@ Node.js 18+ 仅用于依赖检测与项目测试。缺少 Node.js 时，仍可�
 
 ## 2. 获取仓库
 
-优先克隆到用户指定的新目录：
+若 Agent 已在本仓库目录内运行，跳过本步。否则克隆到用户指定的新目录：
 
 ```bash
 git clone https://github.com/KazeLiu/Paimon-Skill.git

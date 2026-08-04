@@ -1,6 +1,27 @@
-# Paimon-Skill
+<div align="center">
+  <img src="logo.png" alt="Paimon-Skill" width="160" />
 
-面向 Claude Code、Codex 与其他兼容 Agent 的原神攻略查询 skill。`skills/` 是唯一正文来源，插件元数据只负责发现这份目录。
+  # Paimon-Skill
+
+  面向 Claude Code、Codex 与其他兼容 Agent 的原神攻略查询 skill。
+</div>
+
+`skills/` 是唯一正文来源，插件元数据只负责发现这份目录。
+
+## 怎么用（最简单）
+
+**在本仓库目录里打开 Agent，直接问原神问题即可**——无需安装、无需链接、无需说「加载 skill」。
+
+任何兼容 Agent（Claude Code、Codex 等）在本目录启动时会读到根目录 [AGENTS.md](AGENTS.md)，其中内联了派蒙人设与完整工作规则，于是自动进入派蒙状态并按规则回答。
+
+```text
+# 在 d:\code\Paimon-Skill 里启动 Agent，然后：
+胡桃怎么配？
+当前卡池是什么？
+大家现在怎么给芙宁娜配队？
+```
+
+想在任意目录都能用？把这份目录 clone 到本地，随时进来问；或看下方[让 Agent 全局可用](#让-agent-全局可用可选)。
 
 ## 能做什么
 
@@ -19,14 +40,9 @@
 
 稳定图鉴事实不查询社交平台。配装争议、实战取舍或用户明确询问“大家怎么配”时，才启用社区查询。
 
-## 快速开始
+## 让 Agent 全局可用（可选）
 
-```bash
-git clone https://github.com/KazeLiu/Paimon-Skill.git
-cd Paimon-Skill
-```
-
-然后用 Agent 打开仓库，或将 `skills/genshin-build-wiki` 链接到该 Agent 的个人 skills 目录：
+进本目录已经能直接用。如果想在**任意目录**都能唤起派蒙，把 `skills/genshin-build-wiki` 链接到 Agent 的个人 skills 目录即可：
 
 ```text
 ~/.claude/skills/genshin-build-wiki
@@ -34,32 +50,32 @@ cd Paimon-Skill
 ~/.agents/skills/genshin-build-wiki
 ```
 
-也可以让 Agent 执行安装：
+也可以让 Agent 帮你做这步：
 
 ```text
-帮我安装 Paimon-Skill：https://github.com/KazeLiu/Paimon-Skill
+帮我把 Paimon-Skill 链接到全局 skills 目录：https://github.com/KazeLiu/Paimon-Skill
 ```
 
-安装 Agent 必须保留已有目录，并在任何全局依赖安装前征求用户同意。完整流程见 [INSTALLATION_GUIDE.md](INSTALLATION_GUIDE.md)。
+链接 Agent 必须保留已有目录，并在任何全局依赖安装前征求用户同意。链接与依赖的完整流程见 [INSTALLATION_GUIDE.md](INSTALLATION_GUIDE.md)。
 
 ## 可选社区依赖
 
-BWiki 和 OBC 查询不需要 OpenCLI。只有查询小红书、知乎或 B站社区内容时才需要它。
+BWiki 和 OBC 查询不需要 OpenCLI。只有查询小红书、知乎或 B站社区内容时才需要它。**想看玩家实战经验，推荐装上 OpenCLI。**
+
+两种安装方式，任选其一：
+
+- **自己装**：执行下方命令，装完用 `opencli --version` 验证。
+- **让派蒙帮你装 / 指导你装**：直接说「帮我装一下 OpenCLI」，Agent 会先检测环境、说明用途，征得你同意后再执行安装并复检；你也可以让它一步步指导你自己完成。
 
 ```bash
-node skills/genshin-build-wiki/check-dependencies.js
+node skills/genshin-build-wiki/check-dependencies.js          # 只检测，不安装、不写状态文件
 node skills/genshin-build-wiki/check-dependencies.js --json
+npm install -g @jackwener/opencli                             # 明确同意后再执行
 ```
 
-检测脚本只检查当前环境，不安装软件、不写状态文件。未检测到 OpenCLI 时，Agent 应先询问用户；得到明确同意后才可执行：
+若 OpenCLI 已存在但所需平台能力为 `false`，Agent 会说明缺少的子命令；只有你明确同意更新或修复后，才会重新安装或升级。
 
-```bash
-npm install -g @jackwener/opencli
-```
-
-若 OpenCLI 已存在但所需平台能力为 `false`，Agent 应说明缺少的子命令；只有用户明确同意更新或修复后，才可重新安装或升级 OpenCLI。
-
-用户不同意时，skill 继续使用 BWiki + OBC，并明确没有覆盖社区经验。详见 [skills/genshin-build-wiki/INSTALL.md](skills/genshin-build-wiki/INSTALL.md)。
+不安装时，skill 继续使用 BWiki + OBC，并明确没有覆盖社区经验。详见 [skills/genshin-build-wiki/INSTALL.md](skills/genshin-build-wiki/INSTALL.md)。
 
 ## 示例
 
@@ -83,16 +99,18 @@ npm install -g @jackwener/opencli
 
 ```text
 Paimon-Skill/
-├── AGENTS.md
+├── AGENTS.md              # 内联派蒙人设+工作规则，进目录即生效
+├── CLAUDE.md              # Claude Code 入口，指向 AGENTS.md
 ├── README.md
-├── INSTALLATION_GUIDE.md
+├── logo.png
+├── INSTALLATION_GUIDE.md  # 全局链接与可选依赖的完整流程
 ├── package.json
 ├── .claude-plugin/
 ├── .codex-plugin/
 ├── tests/
 └── skills/
     └── genshin-build-wiki/
-        ├── SKILL.md
+        ├── SKILL.md          # 完整正文（插件发现用）
         ├── INSTALL.md
         ├── check-dependencies.js
         └── references/
@@ -100,6 +118,8 @@ Paimon-Skill/
             ├── query-cheatsheet.md
             └── social-platforms.md
 ```
+
+> [AGENTS.md](AGENTS.md) 是 SKILL.md 的内联精简版，两者规则保持一致：进目录即生效靠前者，插件生态发现靠后者。
 
 ## 开发与测试
 
