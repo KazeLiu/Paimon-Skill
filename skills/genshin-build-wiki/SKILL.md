@@ -2,8 +2,9 @@
 name: genshin-build-wiki
 description: >-
   Use when the user asks for Genshin Impact or 原神 character builds, artifacts,
-  weapons, teams, mechanics, current banners, events, Spiral Abyss, or other
-  game wiki and strategy information. Do not use for repository, plugin, prompt,
+  weapons, teams, mechanics, current banners, events, Spiral Abyss, character
+  stories, lore, story quests, or other game wiki and strategy information.
+  Do not use for repository, plugin, prompt,
   or skill development discussions that merely mention Genshin or Paimon.
 ---
 
@@ -65,7 +66,7 @@ description: >-
 
 ## 大跨度剧情 / 考据检索
 
-跨多个大版本的剧情、传说任务链、世界观或角色考据，官方往往有十几个乃至更多相关页面。这类问题**允许大量取页**，并**沿页面内链接不断发现新页面，织成一张主题网**，不受常规 4 页上限约束。
+跨多个大版本的剧情、传说任务链、世界观或角色考据，官方往往有十几个乃至更多相关页面。这类问题**允许大量取页**，并**沿页面内链接不断发现新页面，织成一张主题网**，不受常规 4 页上限约束。**人物故事 / 角色故事 / 剧情考据**类问题走本策略；具体的 BWiki 全文搜索、分页翻页、页面类型与证据分级方法见 [references/story-research.md](references/story-research.md)。
 
 1. **先建索引（广度）**：用 `opensearch`、版本专题页、任务/角色分类页，先拉出章节·版本时间线清单（标题 + URL），此步不读正文。
 2. **沿内链织网（滚雪球）**：把读到页面里与主题**强相关**的内链（前置/后续任务、相关角色、关键地点与事件）加入待访问清单，逐层扩展至主题闭环，十几、几十页都可以。
@@ -186,4 +187,5 @@ opencli bilibili search "芙宁娜配装攻略" --limit 5 -f json
 - [references/sources.md](references/sources.md)：来源边界、权威层级与冲突规则
 - [references/query-cheatsheet.md](references/query-cheatsheet.md)：BWiki/OBC 查询命令
 - [references/social-platforms.md](references/social-platforms.md)：OpenCLI 社区查询与筛选规则
+- [references/story-research.md](references/story-research.md)：人物故事 / 剧情考据的跨页检索与证据核验
 - [INSTALL.md](INSTALL.md)：可选依赖检测与安装说明

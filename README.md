@@ -304,6 +304,8 @@ BWiki 和 OBC 查询不需要任何额外依赖。只有查询**小红书 / 知�
 
 想看玩家实战经验就推荐装上。可以自己装，也可以直接说「帮我装一下 OpenCLI」让派蒙代装或一步步指导（实际执行安装前都会先征得你同意）。**完整两步安装（含扩展的应用商店 / 离线两种装法）见 [skills/genshin-build-wiki/INSTALL.md](skills/genshin-build-wiki/INSTALL.md)。**
 
+若 OpenCLI 已装但某个**平台能力**（`xiaohongshu/zhihu/bilibili` 平台子命令）为 `false`，只有在你**明确同意更新或修复**后，才会重装或升级。
+
 不装时，skill 继续使用 BWiki + OBC，并明确说明没有覆盖社区经验。
 
 ## 示例

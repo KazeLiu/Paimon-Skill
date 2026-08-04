@@ -48,8 +48,42 @@ test('stable facts do not require community lookup', () => {
   assert.match(skill, /稳定事实[\s\S]{0,300}(?:不查|无需查询)社区/);
 });
 
+test('character story and lore questions trigger a dedicated lookup route', () => {
+  const frontmatter = skill.match(/^---\r?\n([\s\S]*?)\r?\n---/)?.[1] ?? '';
+  assert.match(frontmatter, /stor(?:y|ies)|lore|quest/i);
+  assert.match(skill, /人物故事|角色故事|剧情考据/);
+  assert.match(skill, /references\/story-research\.md\b/);
+});
+
+test('story research discovers and verifies evidence across wiki pages', () => {
+  const storyPath = path.join(
+    root,
+    'skills',
+    'genshin-build-wiki',
+    'references',
+    'story-research.md',
+  );
+  assert.equal(fs.existsSync(storyPath), true, 'story-research.md not found');
+  const story = fs.readFileSync(storyPath, 'utf8');
+
+  assert.match(story, /searchwiki\.biligame\.com\/ys\/index\.php\?search=/);
+  assert.match(story, /URL 编码|URL-encode/i);
+  assert.match(story, /offset|后\s*\d+\s*个|下一页/);
+  for (const pageType of ['魔神任务', '传说任务', '世界任务', '邀约任务', '活动任务', '物品描述']) {
+    assert.match(story, new RegExp(pageType));
+  }
+  assert.match(story, /搜索结果[^。\n]*(?:候选|线索)/);
+  assert.match(story, /(?:打开|读取)[^。\n]*(?:具体|命中)[^。\n]*页面/);
+  assert.match(story, /(?:明确事实|直接证据)[\s\S]{0,200}(?:推断|推测)/);
+});
+
 test('all maintained references are discoverable from SKILL.md', () => {
-  for (const file of ['sources.md', 'query-cheatsheet.md', 'social-platforms.md']) {
+  for (const file of [
+    'sources.md',
+    'query-cheatsheet.md',
+    'social-platforms.md',
+    'story-research.md',
+  ]) {
     assert.match(skill, new RegExp(`references/${file.replace('.', '\\.')}\\b`));
   }
 });
