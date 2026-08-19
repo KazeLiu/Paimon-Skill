@@ -202,6 +202,8 @@
 
 ## Task 7: Add persistent WebView2 browser tasks
 
+**Status (2026-08-19): In progress.** The current branch implements application-owned persistent WebView2 profile data, embedded child-WebView tabs, address navigation, back/forward/reload, bounded page extraction, bounded scrolling, generic read-only visible-text clicks, login/challenge detection, and “询问当前网页”. Remaining work: profile clearing UI, explicit wait/cancellation controls, saved dynamic-page fixtures, and broader external-window/login-flow handling.
+
 **Files:**
 - Create: `apps/desktop/src-tauri/src/browser/mod.rs`
 - Create: `apps/desktop/src-tauri/src/browser/profile.rs`
@@ -236,6 +238,8 @@
 - [ ] **Step 6: Test extraction and safety.**
 
   Use local fixture pages to test dynamic content, stable-scroll termination, expandable sections, comments, login challenge detection, cancellation, and side-effect rejection.
+
+Current automated coverage includes URL protocol/credential rejection, side-effect click rejection, bounded content and links, stable-scroll termination, WebView callback decoding, tab visibility state, browser UI address opening, current-page handoff, and visible error state. Dynamic fixture and cancellation coverage remains pending.
 
 ## Task 8: Add website adapters for comments and high-frequency pages
 

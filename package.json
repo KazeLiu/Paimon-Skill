@@ -17,7 +17,10 @@
   },
   "license": "MIT",
   "scripts": {
-    "test": "node --test tests/check-dependencies.test.js tests/validate-skill.test.js"
+    "test": "node --test tests/check-dependencies.test.js tests/validate-skill.test.js",
+    "desktop:dev": "npm --prefix apps/desktop run tauri dev",
+    "desktop:build": "npm --prefix apps/desktop run tauri build",
+    "desktop:test": "npm --prefix apps/desktop test"
   },
   "engines": {
     "node": ">=18"
