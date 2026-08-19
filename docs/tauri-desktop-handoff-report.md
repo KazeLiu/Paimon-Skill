@@ -1,7 +1,7 @@
 # Tauri 2 桌面端交接报告
 
-更新时间：2026-08-19  
-当前分支：`codex/tauri-desktop-phase1`  
+更新时间：2026-08-19
+当前分支：`codex/tauri-desktop-phase1`
 远端状态：已推送，`HEAD` 与 `origin/codex/tauri-desktop-phase1` 均为 `6b12bf2`
 
 ## 一、已完成
