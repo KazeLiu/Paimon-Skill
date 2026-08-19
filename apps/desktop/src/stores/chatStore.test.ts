@@ -74,6 +74,33 @@ describe("chatStore", () => {
     expect(store.sending).toBe(false);
   });
 
+  it("replays source and tool events that arrive before sendMessage resolves", async () => {
+    let resolveSend!: (value: Awaited<ReturnType<typeof sendMessage>>) => void;
+    vi.mocked(sendMessage).mockReturnValue(new Promise((resolve) => { resolveSend = resolve; }));
+    const store = useChatStore();
+    await store.initialize();
+
+    const sending = store.send("你好");
+    store.handleTool({ conversationId: "c1", runId: "run-early", toolName: "browser_extract_page", status: "completed" });
+    store.handleSource({
+      conversationId: "c1",
+      runId: "run-early",
+      source: { title: "动态页面", url: "https://example.com", sourceLevel: "browser_webview", platform: "example.com", capturedAt: "1" },
+    });
+    store.handleEvent({ kind: "assistant_finished", runId: "run-early", conversationId: "c1", delta: null, finalContent: "完成", messageId: "m2", error: null });
+    resolveSend({
+      runId: "run-early",
+      conversation: { id: "c1", title: "测试", providerId: "deepseek", createdAt: "1", updatedAt: "1" },
+      userMessage: { id: "m1", conversationId: "c1", role: "user", content: "你好", createdAt: "1" },
+    });
+    await sending;
+
+    expect(store.sources.map((source) => source.url)).toEqual(["https://example.com"]);
+    expect(store.toolActivities).toEqual([
+      { conversationId: "c1", runId: "run-early", toolName: "browser_extract_page", status: "completed" },
+    ]);
+  });
+
   it.each(["run_failed", "run_cancelled"] as const)("removes unpersisted assistant content on %s", async (kind) => {
     vi.mocked(sendMessage).mockResolvedValue({
       runId: "run-1",
@@ -110,6 +137,16 @@ describe("chatStore", () => {
     expect(store.messages).toEqual([]);
   });
 
+  it("does not buffer an old conversation event while a new send is unresolved", () => {
+    const store = useChatStore();
+    store.activeConversationId = "c2";
+    store.sending = true;
+
+    store.handleEvent({ kind: "message_delta", runId: "run-old", conversationId: "c1", delta: "旧内容", messageId: null, error: null });
+
+    expect(store.bufferedEvents).toEqual([]);
+  });
+
   it("restores messages, sources, and tool runs when selecting a conversation", async () => {
     vi.mocked(listMessages).mockResolvedValue([
       { id: "m1", conversationId: "c1", role: "assistant", content: "结论", createdAt: "1" },
@@ -130,7 +167,26 @@ describe("chatStore", () => {
 
     expect(store.messages).toHaveLength(1);
     expect(store.sources[0].url).toBe("https://example.com");
-    expect(store.toolActivities).toEqual([{ runId: "r1", toolName: "read_url", status: "completed" }]);
+    expect(store.toolActivities).toEqual([{ conversationId: "c1", runId: "r1", toolName: "read_url", status: "completed" }]);
+  });
+
+  it("ignores stale source and tool events from another conversation or run", async () => {
+    const store = useChatStore();
+    store.conversations = [
+      { id: "c1", title: "当前", providerId: "deepseek", createdAt: "1", updatedAt: "1" },
+      { id: "c2", title: "旧", providerId: "deepseek", createdAt: "2", updatedAt: "2" },
+    ];
+    await store.selectConversation("c1");
+    store.activeRunId = "run-current";
+
+    const source = { title: "旧来源", url: "https://old.example", sourceLevel: "web", platform: "网页", capturedAt: "1" };
+    store.handleSource({ conversationId: "c2", runId: "run-old", source });
+    store.handleSource({ conversationId: "c1", runId: "run-old", source: { ...source, url: "https://wrong-run.example" } });
+    store.handleTool({ conversationId: "c2", runId: "run-old", toolName: "read_url", status: "completed" });
+    store.handleTool({ conversationId: "c1", runId: "run-old", toolName: "read_url", status: "completed" });
+
+    expect(store.sources).toEqual([]);
+    expect(store.toolActivities).toEqual([]);
   });
 
   it("does not overwrite the latest conversation with stale activity results", async () => {

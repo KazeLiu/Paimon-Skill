@@ -18,7 +18,7 @@ pub struct ToolResult {
 }
 
 pub fn definitions() -> Vec<crate::providers::models::ToolDefinition> {
-    vec![
+    let mut definitions = vec![
         crate::providers::models::ToolDefinition {
             r#type: "function".into(),
             function: crate::providers::models::ToolFunction {
@@ -43,7 +43,9 @@ pub fn definitions() -> Vec<crate::providers::models::ToolDefinition> {
                 parameters: json!({"type":"object","properties":{"title":{"type":"string"}},"required":["title"]}),
             },
         },
-    ]
+    ];
+    definitions.extend(crate::browser::agent_tools::definitions());
+    definitions
 }
 
 pub async fn execute(client: &Client, name: &str, arguments: &str) -> Result<ToolResult, String> {
@@ -88,9 +90,23 @@ mod tests {
     #[test]
     fn exposes_only_read_only_tools_with_required_arguments() {
         let definitions = definitions();
-        assert_eq!(definitions.len(), 3);
+        assert_eq!(definitions.len(), 7);
         assert_eq!(definitions[0].function.name, "read_url");
         assert_eq!(definitions[1].function.parameters["required"][0], "query");
+        assert!(definitions
+            .iter()
+            .any(|tool| tool.function.name == "browser_open_page"));
+        assert!(definitions
+            .iter()
+            .any(|tool| tool.function.name == "browser_extract_page"));
+        assert!(definitions
+            .iter()
+            .any(|tool| tool.function.name == "browser_scroll_page"));
+        let click = definitions
+            .iter()
+            .find(|tool| tool.function.name == "browser_click_text")
+            .unwrap();
+        assert_eq!(click.function.parameters["required"][0], "target");
         assert!(definitions
             .iter()
             .all(|tool| tool.function.name != "publish"));

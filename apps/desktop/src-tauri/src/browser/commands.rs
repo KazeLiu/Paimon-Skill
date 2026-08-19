@@ -106,6 +106,14 @@ pub async fn open_browser_tab(
     state: State<'_, BrowserState>,
     input: OpenBrowserTabInput,
 ) -> Result<BrowserTab, String> {
+    open_browser_tab_inner(app, &state, input).await
+}
+
+pub async fn open_browser_tab_inner(
+    app: AppHandle,
+    state: &BrowserState,
+    input: OpenBrowserTabInput,
+) -> Result<BrowserTab, String> {
     let url = normalize_browser_url(&input.url)?;
     let bounds = input
         .bounds
@@ -272,12 +280,21 @@ pub fn navigate_browser_tab(
     id: String,
     url: String,
 ) -> Result<BrowserTab, String> {
+    navigate_browser_tab_inner(&app, &state, &id, &url)
+}
+
+pub fn navigate_browser_tab_inner(
+    app: &AppHandle,
+    state: &BrowserState,
+    id: &str,
+    url: &str,
+) -> Result<BrowserTab, String> {
     let url = normalize_browser_url(&url)?;
-    webview(&app, &id)?
+    webview(app, id)?
         .navigate(url.clone())
         .map_err(|error| format!("无法打开网页：{error}"))?;
     state
-        .update(&id, |tab| {
+        .update(id, |tab| {
             tab.url = url.as_str().to_string();
             tab.loading = true;
         })
@@ -305,7 +322,11 @@ pub fn browser_history(app: AppHandle, id: String, direction: String) -> Result<
 
 #[tauri::command]
 pub async fn extract_browser_page(app: AppHandle, id: String) -> Result<PageSnapshot, String> {
-    extract_page(&webview(&app, &id)?, EXTRACT_VISIBLE_PAGE_SCRIPT).await
+    extract_browser_page_inner(&app, &id).await
+}
+
+pub async fn extract_browser_page_inner(app: &AppHandle, id: &str) -> Result<PageSnapshot, String> {
+    extract_page(&webview(app, id)?, EXTRACT_VISIBLE_PAGE_SCRIPT).await
 }
 
 #[tauri::command]
@@ -314,7 +335,15 @@ pub async fn scroll_browser_page(
     id: String,
     max_rounds: u8,
 ) -> Result<PageSnapshot, String> {
-    let webview = webview(&app, &id)?;
+    scroll_browser_page_inner(&app, &id, max_rounds).await
+}
+
+pub async fn scroll_browser_page_inner(
+    app: &AppHandle,
+    id: &str,
+    max_rounds: u8,
+) -> Result<PageSnapshot, String> {
+    let webview = webview(app, id)?;
     let rounds = max_rounds.clamp(1, 12);
     let mut tracker = ScrollTracker::default();
     for _ in 0..rounds {
@@ -333,8 +362,16 @@ pub async fn click_browser_target(
     id: String,
     target: String,
 ) -> Result<PageSnapshot, String> {
-    let target = validate_click_target(&target)?;
-    let webview = webview(&app, &id)?;
+    click_browser_target_inner(&app, &id, &target).await
+}
+
+pub async fn click_browser_target_inner(
+    app: &AppHandle,
+    id: &str,
+    target: &str,
+) -> Result<PageSnapshot, String> {
+    let target = validate_click_target(target)?;
+    let webview = webview(app, id)?;
     let result: ClickResult = eval_json(&webview, click_visible_target_script(&target)?).await?;
     if !result.clicked {
         return Err(result.error.unwrap_or_else(|| "网页未执行点击".into()));

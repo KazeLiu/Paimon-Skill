@@ -38,6 +38,12 @@ export interface SourceRecord {
   capturedAt: string;
 }
 
+export interface ChatSourceEvent {
+  conversationId: string;
+  runId: string;
+  source: SourceRecord;
+}
+
 export interface StoredSourceRecord extends SourceRecord {
   id: string;
   conversationId: string;
@@ -72,6 +78,7 @@ export interface ToolRunRecord {
 }
 
 export interface ToolActivity {
+  conversationId: string;
   runId: string;
   toolName: string;
   status: string;

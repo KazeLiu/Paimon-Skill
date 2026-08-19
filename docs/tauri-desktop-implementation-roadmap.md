@@ -204,7 +204,7 @@
 
 ## Task 7: Add persistent WebView2 browser tasks
 
-**Status (2026-08-19): In progress.** The current branch implements application-owned persistent WebView2 profile data, embedded child-WebView tabs, address navigation, back/forward/reload, bounded page extraction, bounded scrolling, generic read-only visible-text clicks, login/challenge detection, and “询问当前网页”. Remaining work: profile clearing UI, explicit wait/cancellation controls, saved dynamic-page fixtures, and broader external-window/login-flow handling.
+**Status (2026-08-19): In progress.** The current branch implements application-owned persistent WebView2 profile data, embedded child-WebView tabs, address navigation, back/forward/reload, bounded page extraction, bounded scrolling, generic read-only visible-text clicks, login/challenge detection, “询问当前网页”, and Agent tools for opening, extracting, scrolling, and clicking the active page. Agent browser results are source/tool-run records scoped to the conversation and run. Remaining work: profile clearing UI, explicit wait/cancellation controls, saved dynamic-page fixtures, and broader external-window/login-flow handling.
 
 **Files:**
 - Create: `apps/desktop/src-tauri/src/browser/mod.rs`

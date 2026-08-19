@@ -12,7 +12,7 @@ import {
   sendMessage,
 } from "@/api/chat";
 import { listProviders } from "@/api/providers";
-import type { ChatEvent, Conversation, Message, SourceRecord, ToolActivity, ToolRunRecord } from "@/types/chat";
+import type { ChatEvent, ChatSourceEvent, Conversation, Message, SourceRecord, ToolActivity, ToolRunRecord } from "@/types/chat";
 import type { ProviderView } from "@/types/providers";
 
 export const useChatStore = defineStore("chat", {
@@ -30,6 +30,8 @@ export const useChatStore = defineStore("chat", {
     toolRuns: [] as ToolRunRecord[],
     toolActivities: [] as ToolActivity[],
     bufferedEvents: [] as ChatEvent[],
+    bufferedSourceEvents: [] as ChatSourceEvent[],
+    bufferedToolEvents: [] as ToolActivity[],
     unlisten: null as UnlistenFn | null,
   }),
   getters: {
@@ -71,7 +73,7 @@ export const useChatStore = defineStore("chat", {
       this.messages = messages;
       this.sources = sources;
       this.toolRuns = toolRuns;
-      this.toolActivities = toolRuns.map(({ runId, toolName, status }) => ({ runId, toolName, status }));
+      this.toolActivities = toolRuns.map(({ conversationId, runId, toolName, status }) => ({ conversationId, runId, toolName, status }));
       const conversation = this.conversations.find((item) => item.id === id);
       if (conversation) this.selectedProviderId = conversation.providerId;
     },
@@ -84,6 +86,8 @@ export const useChatStore = defineStore("chat", {
       this.toolRuns = [];
       this.toolActivities = [];
       this.bufferedEvents = [];
+      this.bufferedSourceEvents = [];
+      this.bufferedToolEvents = [];
     },
     async send(content: string) {
       if (!this.selectedProviderId) throw new Error("请先配置并选择模型");
@@ -105,20 +109,33 @@ export const useChatStore = defineStore("chat", {
           createdAt: new Date().toISOString(),
         });
         const buffered = this.bufferedEvents.filter((event) => event.runId === result.runId);
+        const bufferedSources = this.bufferedSourceEvents.filter((event) => event.runId === result.runId);
+        const bufferedTools = this.bufferedToolEvents.filter((event) => event.runId === result.runId);
         this.bufferedEvents = [];
-        buffered.forEach((event) => this.handleEvent(event));
+        this.bufferedSourceEvents = [];
+        this.bufferedToolEvents = [];
+        bufferedSources.forEach((event) => this.handleSource(event));
+        bufferedTools.forEach((event) => this.handleTool(event));
+        buffered
+          .filter((event) => event.kind === "message_delta")
+          .forEach((event) => this.handleEvent(event));
+        buffered
+          .filter((event) => event.kind !== "message_delta")
+          .forEach((event) => this.handleEvent(event));
         const existing = this.conversations.findIndex((item) => item.id === result.conversation.id);
         if (existing >= 0) this.conversations.splice(existing, 1);
         this.conversations.unshift(result.conversation);
       } catch (error) {
         this.error = error instanceof Error ? error.message : String(error);
         this.bufferedEvents = [];
+        this.bufferedSourceEvents = [];
+        this.bufferedToolEvents = [];
         this.sending = false;
         throw error;
       }
     },
     handleEvent(event: ChatEvent) {
-      if (!this.activeRunId && this.sending) {
+      if (!this.activeRunId && this.sending && (!this.activeConversationId || event.conversationId === this.activeConversationId)) {
         this.bufferedEvents.push(event);
         return;
       }
@@ -151,10 +168,25 @@ export const useChatStore = defineStore("chat", {
         this.sending = false;
       }
     },
-    handleSource(source: SourceRecord) {
-      if (!this.sources.some((item) => item.url === source.url)) this.sources.push(source);
+    handleSource(event: ChatSourceEvent | SourceRecord) {
+      if ("source" in event) {
+        if (!this.activeRunId && this.sending && (!this.activeConversationId || event.conversationId === this.activeConversationId)) {
+          this.bufferedSourceEvents.push(event);
+          return;
+        }
+        if (!this.activeConversationId || event.conversationId !== this.activeConversationId) return;
+        if (!this.activeRunId || event.runId !== this.activeRunId) return;
+        event = event.source;
+      }
+      if (!this.sources.some((item) => item.url === event.url)) this.sources.push(event);
     },
     handleTool(activity: ToolActivity) {
+      if (!this.activeRunId && this.sending && (!this.activeConversationId || activity.conversationId === this.activeConversationId)) {
+        this.bufferedToolEvents.push(activity);
+        return;
+      }
+      if (!this.activeConversationId || activity.conversationId !== this.activeConversationId) return;
+      if (!this.activeRunId || activity.runId !== this.activeRunId) return;
       this.toolActivities.push(activity);
     },
     async cancel() {

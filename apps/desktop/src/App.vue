@@ -22,6 +22,7 @@ import BrowserTabs from "@/components/BrowserTabs.vue";
 import { useChatStore } from "@/stores/chatStore";
 import { useBrowserStore } from "@/stores/browserStore";
 import type { PageSnapshot } from "@/types/browser";
+import type { ChatSourceEvent, ToolActivity } from "@/types/chat";
 
 type ViewId = "chat" | "browser" | "settings";
 type SettingsSection = "models" | "prompts";
@@ -98,8 +99,8 @@ watch(activeView, (view) => {
 
 onMounted(async () => {
   await Promise.all([chatStore.initialize(), chatStore.bindEvents()]);
-  unlistenSource = await listen("chat-source", (event) => chatStore.handleSource(event.payload as any));
-  unlistenTool = await listen("chat-tool", (event) => chatStore.handleTool(event.payload as any));
+  unlistenSource = await listen<ChatSourceEvent>("chat-source", (event) => chatStore.handleSource(event.payload));
+  unlistenTool = await listen<ToolActivity>("chat-tool", (event) => chatStore.handleTool(event.payload));
 });
 
 onUnmounted(() => {

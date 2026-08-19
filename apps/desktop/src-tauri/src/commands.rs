@@ -296,12 +296,19 @@ async fn run_chat(
     messages: Vec<crate::providers::models::ChatMessage>,
     token: CancellationToken,
 ) -> Result<(), String> {
-    struct RegistryTools(reqwest::Client);
+    struct RegistryTools {
+        client: reqwest::Client,
+        app: AppHandle,
+    }
 
     #[async_trait::async_trait]
     impl ToolBackend for RegistryTools {
         async fn execute(&self, name: &str, arguments: &str) -> Result<ToolResult, String> {
-            crate::tools::registry::execute(&self.0, name, arguments).await
+            if crate::browser::agent_tools::is_supported(name) {
+                crate::browser::agent_tools::execute(&self.app, name, arguments).await
+            } else {
+                crate::tools::registry::execute(&self.client, name, arguments).await
+            }
         }
     }
 
@@ -315,7 +322,12 @@ async fn run_chat(
         fn tool_started(&self, name: &str) {
             let _ = self.app.emit(
                 "chat-tool",
-                serde_json::json!({"runId": self.run_id, "toolName": name, "status": "running"}),
+                serde_json::json!({
+                    "conversationId": self.conversation_id,
+                    "runId": self.run_id,
+                    "toolName": name,
+                    "status": "running"
+                }),
             );
         }
 
@@ -323,6 +335,7 @@ async fn run_chat(
             let _ = self.app.emit(
                 "chat-tool",
                 serde_json::json!({
+                    "conversationId": self.conversation_id,
                     "runId": self.run_id,
                     "toolName": name,
                     "status": if success { "completed" } else { "failed" }
@@ -331,7 +344,14 @@ async fn run_chat(
         }
 
         fn source_added(&self, source: &SourceRecord) {
-            let _ = self.app.emit("chat-source", source);
+            let _ = self.app.emit(
+                "chat-source",
+                serde_json::json!({
+                    "conversationId": self.conversation_id,
+                    "runId": self.run_id,
+                    "source": source
+                }),
+            );
         }
 
         fn tool_recorded(
@@ -358,7 +378,10 @@ async fn run_chat(
         Vec::new()
     };
     let backend = OpenAiModelBackend::new(provider, api_key)?;
-    let tools = RegistryTools(reqwest::Client::new());
+    let tools = RegistryTools {
+        client: reqwest::Client::new(),
+        app: app.clone(),
+    };
     let events = TauriEvents {
         app,
         run_id,
