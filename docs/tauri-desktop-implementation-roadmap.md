@@ -105,7 +105,7 @@
 
 ## Task 4: Implement local storage and Agent runtime
 
-**Status (2026-08-19): In progress.** Conversations, messages, complete tool runs, and deduplicated sources now persist in SQLite with conversation/run/call identifiers and cascade deletion. Historical conversations restore their messages, sources, and tool activity. The Agent supports bounded multi-round tool calling, structured tool failures, streaming, and cancellation. Remaining work: provider/prompt database consolidation, browser profile metadata, older-context summarization/trimming, and the finer-grained progress/result event contract.
+**Status (2026-08-19): In progress.** Conversations, messages, complete tool runs, and deduplicated sources now persist in SQLite with conversation/run/call identifiers and cascade deletion. Historical conversations restore their messages, sources, and tool activity. The Agent supports bounded multi-round tool calling, structured tool failures, streaming, cancellation, and deterministic context trimming. Remaining work: provider/prompt database consolidation, browser profile metadata, and the finer-grained progress/result event contract.
 
 **Files:**
 - Create: `apps/desktop/src-tauri/src/storage/migrations/001_initial.sql`
@@ -130,9 +130,11 @@
 
   Load the composed prompt from storage, append conversation context, call the selected provider, validate tool-call arguments, execute the tool registry, append structured tool results, and continue until the model returns a final answer or the configured maximum tool rounds is reached.
 
-- [ ] **Step 4: Implement context trimming.**
+- [x] **Step 4: Implement context trimming.**
 
-  Keep the latest user/assistant turns, summarize older messages, cap each tool result by characters/tokens, and preserve source metadata even when body text is trimmed.
+  `build_messages` always retains the configured system message, bounds every message to 12,000 characters, and keeps the newest complete user/assistant messages within a 48,000-character context budget. Older messages are omitted at message boundaries; only an individually oversized message is truncated with an explicit marker.
+
+  Keep the latest user/assistant turns, omit older history at message boundaries, cap each tool result by characters, and preserve source metadata even when body text is trimmed. Older-history summarization can be added later without changing the hard limits.
 
 - [ ] **Step 5: Test the runtime.**
 

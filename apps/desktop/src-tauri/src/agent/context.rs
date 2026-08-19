@@ -1,18 +1,55 @@
 use crate::{providers::models::ChatMessage, storage::models::Message};
 
+/// Maximum content retained for one message, including the system message.
+pub const MAX_MESSAGE_CHARS: usize = 12_000;
+/// Maximum content retained across the system prompt and historical messages.
+pub const MAX_CONTEXT_CHARS: usize = 48_000;
+const TRUNCATION_SUFFIX: &str = "\n[该消息已按上下文上限截断]";
+
 pub fn build_messages(system_prompt: &str, history: &[Message]) -> Vec<ChatMessage> {
-    let mut messages = Vec::with_capacity(history.len() + 1);
-    messages.push(ChatMessage::system(system_prompt));
-    messages.extend(
-        history
-            .iter()
-            .filter_map(|message| match message.role.as_str() {
-                "user" => Some(ChatMessage::user(&message.content)),
-                "assistant" => Some(ChatMessage::assistant(&message.content)),
-                _ => None,
-            }),
-    );
+    let system_content = bound_message_content(system_prompt);
+    let system_chars = system_content.chars().count();
+    let system = ChatMessage::system(system_content);
+    let history_budget = MAX_CONTEXT_CHARS.saturating_sub(system_chars);
+    let mut selected = Vec::new();
+    let mut used_chars = 0usize;
+
+    // Walk backwards so the newest messages win. We only split a message when
+    // the message itself exceeds its hard per-message limit.
+    for message in history.iter().rev() {
+        let role = match message.role.as_str() {
+            "user" | "assistant" => message.role.as_str(),
+            _ => continue,
+        };
+        let content = bound_message_content(&message.content);
+        let chars = content.chars().count();
+        if used_chars.saturating_add(chars) > history_budget {
+            break;
+        }
+        used_chars += chars;
+        selected.push(match role {
+            "user" => ChatMessage::user(content),
+            _ => ChatMessage::assistant(content),
+        });
+    }
+    selected.reverse();
+
+    let mut messages = Vec::with_capacity(selected.len() + 1);
+    messages.push(system);
+    messages.extend(selected);
     messages
+}
+
+fn bound_message_content(content: &str) -> String {
+    if content.chars().count() <= MAX_MESSAGE_CHARS {
+        return content.to_owned();
+    }
+
+    let suffix_len = TRUNCATION_SUFFIX.chars().count();
+    let keep = MAX_MESSAGE_CHARS.saturating_sub(suffix_len);
+    let mut bounded: String = content.chars().take(keep).collect();
+    bounded.push_str(TRUNCATION_SUFFIX);
+    bounded
 }
 
 #[cfg(test)]
@@ -44,5 +81,82 @@ mod tests {
         assert_eq!(messages[0].content, "custom system");
         assert_eq!(messages[1].role, "user");
         assert_eq!(messages[2].role, "assistant");
+    }
+
+    fn message(id: &str, role: &str, content: &str) -> Message {
+        Message {
+            id: id.into(),
+            conversation_id: "c".into(),
+            role: role.into(),
+            content: content.into(),
+            created_at: id.into(),
+        }
+    }
+
+    #[test]
+    fn drops_old_history_at_message_boundaries_and_keeps_recent_messages() {
+        let history = vec![
+            message("1", "user", &"旧一".repeat(MAX_MESSAGE_CHARS)),
+            message("2", "assistant", &"旧二".repeat(MAX_MESSAGE_CHARS)),
+            message("3", "user", &"旧三".repeat(MAX_MESSAGE_CHARS)),
+            message("4", "assistant", &"旧四".repeat(MAX_MESSAGE_CHARS)),
+            message("5", "user", "最新问题"),
+            message("6", "assistant", "最新回答"),
+        ];
+
+        let messages = build_messages("system", &history);
+        assert_eq!(messages.first().unwrap().content, "system");
+        assert_eq!(messages.last().unwrap().content, "最新回答");
+        assert_eq!(messages[messages.len() - 2].content, "最新问题");
+        assert_eq!(messages.len(), 6);
+        assert!(!messages
+            .iter()
+            .any(|message| message.content.starts_with("旧一")));
+        assert!(messages
+            .iter()
+            .any(|message| message.content.starts_with("旧二")));
+        assert!(
+            messages
+                .iter()
+                .map(|message| message.content.chars().count())
+                .sum::<usize>()
+                <= MAX_CONTEXT_CHARS
+        );
+    }
+
+    #[test]
+    fn truncates_an_oversized_single_message_within_the_per_message_limit() {
+        let content = "字".repeat(MAX_MESSAGE_CHARS + 100);
+        let messages = build_messages("system", &[message("1", "user", &content)]);
+        let bounded = &messages[1].content;
+
+        assert_eq!(bounded.chars().count(), MAX_MESSAGE_CHARS);
+        assert!(bounded.ends_with(TRUNCATION_SUFFIX));
+    }
+
+    #[test]
+    fn system_prompt_is_always_retained_and_total_history_stays_bounded() {
+        let system = "系统".repeat(MAX_CONTEXT_CHARS);
+        let history = vec![
+            message("1", "user", &"a".repeat(MAX_MESSAGE_CHARS)),
+            message("2", "assistant", &"b".repeat(MAX_MESSAGE_CHARS)),
+            message("3", "user", &"c".repeat(MAX_MESSAGE_CHARS)),
+            message("4", "assistant", &"d".repeat(MAX_MESSAGE_CHARS)),
+        ];
+        let messages = build_messages(&system, &history);
+
+        assert_eq!(messages[0].role, "system");
+        assert!(messages[0].content.starts_with("系统"));
+        assert!(messages[0].content.ends_with(TRUNCATION_SUFFIX));
+        assert_eq!(messages.len(), 4);
+        assert_eq!(messages[1].content, "b".repeat(MAX_MESSAGE_CHARS));
+        assert_eq!(messages[3].content, "d".repeat(MAX_MESSAGE_CHARS));
+        assert_eq!(
+            messages
+                .iter()
+                .map(|message| message.content.chars().count())
+                .sum::<usize>(),
+            MAX_CONTEXT_CHARS
+        );
     }
 }
