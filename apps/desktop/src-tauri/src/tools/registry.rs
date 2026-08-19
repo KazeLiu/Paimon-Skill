@@ -90,7 +90,7 @@ mod tests {
     #[test]
     fn exposes_only_read_only_tools_with_required_arguments() {
         let definitions = definitions();
-        assert_eq!(definitions.len(), 7);
+        assert_eq!(definitions.len(), 8);
         assert_eq!(definitions[0].function.name, "read_url");
         assert_eq!(definitions[1].function.parameters["required"][0], "query");
         assert!(definitions
@@ -102,6 +102,9 @@ mod tests {
         assert!(definitions
             .iter()
             .any(|tool| tool.function.name == "browser_scroll_page"));
+        assert!(definitions
+            .iter()
+            .any(|tool| tool.function.name == "browser_extract_comments"));
         let click = definitions
             .iter()
             .find(|tool| tool.function.name == "browser_click_text")

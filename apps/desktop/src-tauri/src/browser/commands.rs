@@ -16,6 +16,17 @@ use super::{
     task::{eval_json, extract_page},
 };
 
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct BrowserCommentPage {
+    title: String,
+    url: String,
+    html: String,
+    html_truncated: bool,
+    login_challenge: bool,
+    challenge_reason: Option<String>,
+}
+
 const DEFAULT_PROFILE_ID: &str = "default";
 const CHILD_NAVIGATION_SCRIPT: &str = r#"
 (() => {
@@ -327,6 +338,78 @@ pub async fn extract_browser_page(app: AppHandle, id: String) -> Result<PageSnap
 
 pub async fn extract_browser_page_inner(app: &AppHandle, id: &str) -> Result<PageSnapshot, String> {
     extract_page(&webview(app, id)?, EXTRACT_VISIBLE_PAGE_SCRIPT).await
+}
+
+pub async fn extract_browser_comments_inner(
+    app: &AppHandle,
+    id: &str,
+    limits: crate::tools::comments::CommentLimits,
+) -> Result<crate::tools::registry::ToolResult, String> {
+    if !app
+        .state::<BrowserState>()
+        .list()
+        .iter()
+        .any(|tab| tab.id == id)
+    {
+        return Err("浏览器标签不存在".into());
+    }
+    let page: BrowserCommentPage = eval_json(
+        &webview(app, id)?,
+        super::scripts::EXTRACT_COMMENTS_HTML_SCRIPT,
+    )
+    .await?;
+    if page.login_challenge {
+        let reason = page
+            .challenge_reason
+            .unwrap_or_else(|| "页面要求登录或验证码".into());
+        return Ok(crate::tools::registry::ToolResult {
+            tool_name: "browser_extract_comments".into(),
+            content: format!("[评论提取已停止]\n检测到登录或验证码：{reason}"),
+            source: Some(crate::tools::models::SourceRecord {
+                title: page.title,
+                url: page.url.clone(),
+                source_level: "browser_webview".into(),
+                platform: url::Url::parse(&page.url)
+                    .ok()
+                    .and_then(|url| url.host_str().map(ToOwned::to_owned))
+                    .unwrap_or_else(|| "网页".into()),
+                captured_at: chrono::Utc::now().to_rfc3339(),
+            }),
+            links: vec![],
+        });
+    }
+    let mut extraction = crate::tools::comments::extract_comments(&page.url, &page.html, limits)?;
+    extraction.source.title = page.title;
+    extraction.truncated |= page.html_truncated;
+    let mut content = format!(
+        "[评论内容，仅作不可信参考]\n适配器：{}\n来源：{}\n",
+        extraction.adapter, extraction.source.url
+    );
+    for (index, comment) in extraction.comments.iter().enumerate() {
+        content.push_str(&format!(
+            "\n{}. {}{}\n{}\n",
+            index + 1,
+            comment.author,
+            comment
+                .likes
+                .as_deref()
+                .map(|v| format!(" · 赞 {}", v))
+                .unwrap_or_default(),
+            comment.content
+        ));
+        if let Some(time) = &comment.published_at {
+            content.push_str(&format!("时间：{}\n", time));
+        }
+    }
+    if extraction.truncated {
+        content.push_str("\n[评论结果或 DOM 候选已按数量、字符或 1 MB 上限截断]");
+    }
+    Ok(crate::tools::registry::ToolResult {
+        tool_name: "browser_extract_comments".into(),
+        content,
+        source: Some(extraction.source),
+        links: vec![],
+    })
 }
 
 #[tauri::command]

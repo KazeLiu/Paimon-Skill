@@ -37,6 +37,14 @@ pub fn definitions() -> Vec<crate::providers::models::ToolDefinition> {
         crate::providers::models::ToolDefinition {
             r#type: "function".into(),
             function: crate::providers::models::ToolFunction {
+                name: "browser_extract_comments".into(),
+                description: "从当前内嵌网页提取可见评论；支持通用 HTML、B站、小红书、知乎选择器，遇到登录或验证码只返回风控提示。".into(),
+                parameters: json!({"type":"object","properties":{"tabId": optional_tab["tabId"].clone(), "maxComments":{"type":"integer","minimum":1,"maximum":100,"default":50}, "maxChars":{"type":"integer","minimum":100,"maximum":2000,"default":2000}}}),
+            },
+        },
+        crate::providers::models::ToolDefinition {
+            r#type: "function".into(),
+            function: crate::providers::models::ToolFunction {
                 name: "browser_extract_page".into(),
                 description: "提取内嵌浏览器当前页面的可见正文和链接，不执行写操作。".into(),
                 parameters: json!({"type":"object","properties": optional_tab}),
@@ -77,7 +85,11 @@ pub fn definitions() -> Vec<crate::providers::models::ToolDefinition> {
 pub fn is_supported(name: &str) -> bool {
     matches!(
         name,
-        "browser_open_page" | "browser_extract_page" | "browser_scroll_page" | "browser_click_text"
+        "browser_open_page"
+            | "browser_extract_page"
+            | "browser_scroll_page"
+            | "browser_click_text"
+            | "browser_extract_comments"
     )
 }
 
@@ -225,6 +237,20 @@ pub async fn execute(app: &AppHandle, name: &str, arguments: &str) -> Result<Too
                 .ok_or_else(|| "浏览器标签不存在".to_string())?;
             let snapshot = commands::click_browser_target_inner(app, &id, target).await?;
             Ok(snapshot_to_tool_result(name, &tab, snapshot))
+        }
+        "browser_extract_comments" => {
+            let id = resolve_tab_id(&state, optional_tab_id(&args))?;
+            let limits = crate::tools::comments::CommentLimits::new(
+                args.get("maxComments")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(50)
+                    .clamp(1, 100) as usize,
+                args.get("maxChars")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(2_000)
+                    .clamp(100, 2_000) as usize,
+            );
+            commands::extract_browser_comments_inner(app, &id, limits).await
         }
         _ => Err(format!("未知浏览器工具：{name}")),
     }

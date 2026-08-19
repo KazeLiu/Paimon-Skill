@@ -47,6 +47,51 @@ pub const SCROLL_SAMPLE_SCRIPT: &str = r#"
 })()
 "#;
 
+pub const EXTRACT_COMMENTS_HTML_SCRIPT: &str = r#"
+(() => {
+  const bodyText = (document.body?.innerText || '').slice(0, 12000).toLowerCase();
+  const terms = ['验证码', '安全验证', '请先登录', '扫码登录', 'captcha', 'verify you are human', 'sign in to continue'];
+  const challengeReason = terms.find((term) => bodyText.includes(term)) || null;
+  const selectors = [
+    '[data-comment]', '[data-comment-id]', '.comment', 'article.comment', '[class*=comment]',
+    '.reply-item', '.reply-wrap', '.note-comment', '.comment-item',
+    '.CommentItem', '.CommentItemV2', '[class*=CommentItem]'
+  ];
+  const isVisible = (element) => {
+    const style = window.getComputedStyle(element);
+    const rect = element.getBoundingClientRect();
+    return style.display !== 'none' && style.visibility !== 'hidden' && Number(style.opacity) !== 0
+      && rect.width > 0 && rect.height > 0;
+  };
+  const seen = new Set();
+  const candidates = selectors.flatMap((selector) => Array.from(document.querySelectorAll(selector)))
+    .filter((element) => {
+      if (seen.has(element) || !isVisible(element)) return false;
+      seen.add(element);
+      return true;
+    });
+  const maxHtmlChars = 1000000;
+  let html = '';
+  let htmlTruncated = false;
+  for (const element of candidates) {
+    const fragment = element.outerHTML || '';
+    if (html.length + fragment.length + 1 > maxHtmlChars) {
+      htmlTruncated = true;
+      break;
+    }
+    html += (html ? '\n' : '') + fragment;
+  }
+  return {
+    title: document.title || location.hostname,
+    url: location.href,
+    html,
+    htmlTruncated,
+    loginChallenge: Boolean(challengeReason),
+    challengeReason,
+  };
+})()
+"#;
+
 pub fn click_visible_target_script(target: &str) -> Result<String, String> {
     let json = serde_json::to_vec(target).map_err(|error| format!("无法编码点击目标：{error}"))?;
     let hex = json
@@ -100,5 +145,20 @@ mod tests {
     fn extraction_script_marks_page_content_as_untrusted() {
         assert!(EXTRACT_VISIBLE_PAGE_SCRIPT.contains("untrustedPageContent"));
         assert!(EXTRACT_VISIBLE_PAGE_SCRIPT.contains("innerText"));
+    }
+
+    #[test]
+    fn comment_html_script_reuses_login_and_captcha_terms() {
+        assert!(EXTRACT_COMMENTS_HTML_SCRIPT.contains("请先登录"));
+        assert!(EXTRACT_COMMENTS_HTML_SCRIPT.contains("captcha"));
+        assert!(EXTRACT_COMMENTS_HTML_SCRIPT.contains("outerHTML"));
+        assert!(EXTRACT_COMMENTS_HTML_SCRIPT.contains("getBoundingClientRect"));
+        assert!(EXTRACT_COMMENTS_HTML_SCRIPT.contains("display !== 'none'"));
+        assert!(EXTRACT_COMMENTS_HTML_SCRIPT.contains("visibility !== 'hidden'"));
+        assert!(EXTRACT_COMMENTS_HTML_SCRIPT.contains("1000000"));
+        assert!(EXTRACT_COMMENTS_HTML_SCRIPT.contains("htmlTruncated"));
+        assert!(EXTRACT_COMMENTS_HTML_SCRIPT.contains(".reply-item"));
+        assert!(EXTRACT_COMMENTS_HTML_SCRIPT.contains(".comment-item"));
+        assert!(EXTRACT_COMMENTS_HTML_SCRIPT.contains(".CommentItem"));
     }
 }

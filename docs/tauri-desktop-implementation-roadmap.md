@@ -245,6 +245,8 @@ Current automated coverage includes URL protocol/credential rejection, side-effe
 
 ## Task 8: Add website adapters for comments and high-frequency pages
 
+**Status (2026-08-19): In progress.** A bounded `browser_extract_comments` tool now extracts visible comments from generic pages and Bilibili/Xiaohongshu/Zhihu selector families, including author, content, visible likes, timestamps, source URL, and login/CAPTCHA stop reasons. Candidate DOM is visibility-filtered and capped at 1 MB; results are persisted through the existing tool/source records. Remaining work: richer per-site pagination/expand workflows, saved fixtures from representative dynamic pages, and more robust selector fallback when a site changes its markup.
+
 **Files:**
 - Create: `apps/desktop/src-tauri/src/adapters/mod.rs`
 - Create: `apps/desktop/src-tauri/src/adapters/bilibili.rs`
