@@ -26,6 +26,8 @@ pub fn run() {
             commands::test_provider,
             commands::list_conversations,
             commands::list_messages,
+            commands::list_tool_runs,
+            commands::list_sources,
             commands::rename_conversation,
             commands::delete_conversation,
             commands::send_message,

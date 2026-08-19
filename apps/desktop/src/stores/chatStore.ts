@@ -6,11 +6,13 @@ import {
   deleteConversation,
   listConversations,
   listMessages,
+  listSources,
+  listToolRuns,
   renameConversation,
   sendMessage,
 } from "@/api/chat";
 import { listProviders } from "@/api/providers";
-import type { ChatEvent, Conversation, Message, SourceRecord, ToolActivity } from "@/types/chat";
+import type { ChatEvent, Conversation, Message, SourceRecord, ToolActivity, ToolRunRecord } from "@/types/chat";
 import type { ProviderView } from "@/types/providers";
 
 export const useChatStore = defineStore("chat", {
@@ -25,6 +27,7 @@ export const useChatStore = defineStore("chat", {
     sending: false,
     error: "",
     sources: [] as SourceRecord[],
+    toolRuns: [] as ToolRunRecord[],
     toolActivities: [] as ToolActivity[],
     bufferedEvents: [] as ChatEvent[],
     unlisten: null as UnlistenFn | null,
@@ -59,7 +62,16 @@ export const useChatStore = defineStore("chat", {
     async selectConversation(id: string) {
       this.activeConversationId = id;
       this.error = "";
-      this.messages = await listMessages(id);
+      const [messages, sources, toolRuns] = await Promise.all([
+        listMessages(id),
+        listSources(id),
+        listToolRuns(id),
+      ]);
+      if (this.activeConversationId !== id) return;
+      this.messages = messages;
+      this.sources = sources;
+      this.toolRuns = toolRuns;
+      this.toolActivities = toolRuns.map(({ runId, toolName, status }) => ({ runId, toolName, status }));
       const conversation = this.conversations.find((item) => item.id === id);
       if (conversation) this.selectedProviderId = conversation.providerId;
     },
@@ -69,6 +81,7 @@ export const useChatStore = defineStore("chat", {
       this.messages = [];
       this.error = "";
       this.sources = [];
+      this.toolRuns = [];
       this.toolActivities = [];
       this.bufferedEvents = [];
     },

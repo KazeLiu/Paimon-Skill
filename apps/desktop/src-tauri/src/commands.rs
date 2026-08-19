@@ -26,8 +26,8 @@ use crate::providers::{
     secrets::{delete_secret, load_secret, save_secret},
 };
 use crate::storage::{
-    models::{Conversation, Message},
-    repository::ChatRepository,
+    models::{Conversation, Message, StoredSourceRecord, ToolRunRecord},
+    repository::{ChatRepository, ToolRunInput},
 };
 use crate::tools::{models::SourceRecord, registry::ToolResult};
 
@@ -176,6 +176,22 @@ pub fn list_messages(app: AppHandle, conversation_id: String) -> Result<Vec<Mess
 }
 
 #[tauri::command]
+pub fn list_tool_runs(
+    app: AppHandle,
+    conversation_id: String,
+) -> Result<Vec<ToolRunRecord>, String> {
+    chat_repository(&app)?.list_tool_runs(&conversation_id)
+}
+
+#[tauri::command]
+pub fn list_sources(
+    app: AppHandle,
+    conversation_id: String,
+) -> Result<Vec<StoredSourceRecord>, String> {
+    chat_repository(&app)?.list_sources(&conversation_id)
+}
+
+#[tauri::command]
 pub fn rename_conversation(app: AppHandle, id: String, title: String) -> Result<(), String> {
     chat_repository(&app)?.rename_conversation(&id, &title)
 }
@@ -292,6 +308,7 @@ async fn run_chat(
     struct TauriEvents<'a> {
         app: &'a AppHandle,
         run_id: &'a str,
+        conversation_id: &'a str,
     }
 
     impl AgentEvents for TauriEvents<'_> {
@@ -316,6 +333,23 @@ async fn run_chat(
         fn source_added(&self, source: &SourceRecord) {
             let _ = self.app.emit("chat-source", source);
         }
+
+        fn tool_recorded(
+            &self,
+            outcome: &crate::agent::runtime::ToolRunOutcome,
+        ) -> Result<(), String> {
+            chat_repository(self.app)?.record_tool_run(ToolRunInput {
+                conversation_id: self.conversation_id,
+                run_id: self.run_id,
+                call_id: &outcome.call_id,
+                tool_name: &outcome.tool_name,
+                arguments: &outcome.arguments,
+                status: &outcome.status,
+                result: outcome.result.as_ref(),
+                error: outcome.error.as_deref(),
+            })?;
+            Ok(())
+        }
     }
 
     let tool_definitions = if provider.tool_calling {
@@ -325,7 +359,11 @@ async fn run_chat(
     };
     let backend = OpenAiModelBackend::new(provider, api_key)?;
     let tools = RegistryTools(reqwest::Client::new());
-    let events = TauriEvents { app, run_id };
+    let events = TauriEvents {
+        app,
+        run_id,
+        conversation_id,
+    };
     let result = run_agent_loop(
         &backend,
         &tools,

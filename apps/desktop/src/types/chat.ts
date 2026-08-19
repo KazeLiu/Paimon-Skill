@@ -38,6 +38,39 @@ export interface SourceRecord {
   capturedAt: string;
 }
 
+export interface StoredSourceRecord extends SourceRecord {
+  id: string;
+  conversationId: string;
+  runId: string;
+  callId: string;
+  createdAt: string;
+}
+
+export interface PageLink {
+  title: string;
+  url: string;
+}
+
+export interface ToolResult {
+  toolName: string;
+  content: string;
+  source: SourceRecord | null;
+  links: PageLink[];
+}
+
+export interface ToolRunRecord {
+  id: string;
+  conversationId: string;
+  runId: string;
+  callId: string;
+  toolName: string;
+  arguments: string;
+  status: string;
+  result: ToolResult | null;
+  error: string | null;
+  createdAt: string;
+}
+
 export interface ToolActivity {
   runId: string;
   toolName: string;

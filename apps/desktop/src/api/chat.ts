@@ -1,10 +1,14 @@
 import { invoke } from "@tauri-apps/api/core";
 
-import type { Conversation, Message, SendMessageResult } from "@/types/chat";
+import type { Conversation, Message, SendMessageResult, StoredSourceRecord, ToolRunRecord } from "@/types/chat";
 
 export const listConversations = () => invoke<Conversation[]>("list_conversations");
 export const listMessages = (conversationId: string) =>
   invoke<Message[]>("list_messages", { conversationId });
+export const listSources = (conversationId: string) =>
+  invoke<StoredSourceRecord[]>("list_sources", { conversationId });
+export const listToolRuns = (conversationId: string) =>
+  invoke<ToolRunRecord[]>("list_tool_runs", { conversationId });
 export const renameConversation = (id: string, title: string) =>
   invoke<void>("rename_conversation", { id, title });
 export const deleteConversation = (id: string) =>

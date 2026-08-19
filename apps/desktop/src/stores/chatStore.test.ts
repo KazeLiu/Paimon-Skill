@@ -2,12 +2,14 @@ import { createPinia, setActivePinia } from "pinia";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useChatStore } from "./chatStore";
-import { listConversations, listMessages, sendMessage } from "@/api/chat";
+import { listConversations, listMessages, listSources, listToolRuns, sendMessage } from "@/api/chat";
 import { listProviders } from "@/api/providers";
 
 vi.mock("@/api/chat", () => ({
   listConversations: vi.fn(),
   listMessages: vi.fn(),
+  listSources: vi.fn(),
+  listToolRuns: vi.fn(),
   sendMessage: vi.fn(),
   cancelRun: vi.fn(),
   deleteConversation: vi.fn(),
@@ -28,6 +30,8 @@ describe("chatStore", () => {
     }, hasApiKey: true }]);
     vi.mocked(listConversations).mockResolvedValue([]);
     vi.mocked(listMessages).mockResolvedValue([]);
+    vi.mocked(listSources).mockResolvedValue([]);
+    vi.mocked(listToolRuns).mockResolvedValue([]);
   });
 
   it("adds the user message and merges streaming deltas into one assistant message", async () => {
@@ -104,5 +108,52 @@ describe("chatStore", () => {
     expect(store.activeRunId).toBeNull();
     expect(store.sending).toBe(false);
     expect(store.messages).toEqual([]);
+  });
+
+  it("restores messages, sources, and tool runs when selecting a conversation", async () => {
+    vi.mocked(listMessages).mockResolvedValue([
+      { id: "m1", conversationId: "c1", role: "assistant", content: "结论", createdAt: "1" },
+    ]);
+    vi.mocked(listSources).mockResolvedValue([
+      { id: "s1", conversationId: "c1", runId: "r1", callId: "call1", title: "来源", url: "https://example.com", sourceLevel: "web", platform: "网页", capturedAt: "1", createdAt: "1" },
+    ]);
+    vi.mocked(listToolRuns).mockResolvedValue([
+      {
+        id: "t1", conversationId: "c1", runId: "r1", callId: "call1", toolName: "read_url",
+        arguments: "{}", status: "completed", result: null, error: null, createdAt: "1",
+      },
+    ]);
+    const store = useChatStore();
+    store.conversations = [{ id: "c1", title: "历史", providerId: "deepseek", createdAt: "1", updatedAt: "1" }];
+
+    await store.selectConversation("c1");
+
+    expect(store.messages).toHaveLength(1);
+    expect(store.sources[0].url).toBe("https://example.com");
+    expect(store.toolActivities).toEqual([{ runId: "r1", toolName: "read_url", status: "completed" }]);
+  });
+
+  it("does not overwrite the latest conversation with stale activity results", async () => {
+    let resolveFirst!: (value: Awaited<ReturnType<typeof listSources>>) => void;
+    vi.mocked(listMessages).mockResolvedValue([]);
+    vi.mocked(listToolRuns).mockResolvedValue([]);
+    vi.mocked(listSources)
+      .mockReturnValueOnce(new Promise((resolve) => { resolveFirst = resolve; }))
+      .mockResolvedValueOnce([
+        { id: "s2", conversationId: "c2", runId: "r2", callId: "call2", title: "新来源", url: "https://new.example", sourceLevel: "web", platform: "网页", capturedAt: "2", createdAt: "2" },
+      ]);
+    const store = useChatStore();
+    store.conversations = [
+      { id: "c1", title: "旧", providerId: "deepseek", createdAt: "1", updatedAt: "1" },
+      { id: "c2", title: "新", providerId: "deepseek", createdAt: "2", updatedAt: "2" },
+    ];
+
+    const first = store.selectConversation("c1");
+    await store.selectConversation("c2");
+    resolveFirst([{ id: "s1", conversationId: "c1", runId: "r1", callId: "call1", title: "旧来源", url: "https://old.example", sourceLevel: "web", platform: "网页", capturedAt: "1", createdAt: "1" }]);
+    await first;
+
+    expect(store.activeConversationId).toBe("c2");
+    expect(store.sources.map((source) => source.url)).toEqual(["https://new.example"]);
   });
 });

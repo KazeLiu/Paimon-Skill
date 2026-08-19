@@ -65,6 +65,9 @@ pub trait AgentEvents: Send + Sync {
     fn tool_started(&self, _name: &str) {}
     fn tool_finished(&self, _name: &str, _success: bool) {}
     fn source_added(&self, _source: &SourceRecord) {}
+    fn tool_recorded(&self, _outcome: &ToolRunOutcome) -> Result<(), String> {
+        Ok(())
+    }
 }
 
 pub async fn run_agent_loop<M, T, E, D>(
@@ -137,36 +140,45 @@ where
                     if let Some(source) = &result.source {
                         events.source_added(source);
                     }
-                    events.tool_finished(&call.name, true);
-                    messages.push(ChatMessage::tool(&call.id, tool_result_for_model(&result)?));
-                    tool_runs.push(ToolRunOutcome {
+                    let outcome = ToolRunOutcome {
                         call_id: call.id,
                         tool_name: call.name,
                         arguments: call.arguments,
                         status: "completed".into(),
                         result: Some(result),
                         error: None,
-                    });
+                    };
+                    events.tool_recorded(&outcome)?;
+                    events.tool_finished(&outcome.tool_name, true);
+                    messages.push(ChatMessage::tool(
+                        &outcome.call_id,
+                        tool_result_for_model(
+                            outcome.result.as_ref().expect("completed tool result"),
+                        )?,
+                    ));
+                    tool_runs.push(outcome);
                 }
                 Err(error) => {
-                    events.tool_finished(&call.name, false);
-                    messages.push(ChatMessage::tool(
-                        &call.id,
-                        serde_json::json!({
-                            "ok": false,
-                            "toolName": call.name,
-                            "error": error,
-                        })
-                        .to_string(),
-                    ));
-                    tool_runs.push(ToolRunOutcome {
+                    let outcome = ToolRunOutcome {
                         call_id: call.id,
                         tool_name: call.name,
                         arguments: call.arguments,
                         status: "failed".into(),
                         result: None,
                         error: Some(error),
-                    });
+                    };
+                    events.tool_recorded(&outcome)?;
+                    events.tool_finished(&outcome.tool_name, false);
+                    messages.push(ChatMessage::tool(
+                        &outcome.call_id,
+                        serde_json::json!({
+                            "ok": false,
+                            "toolName": outcome.tool_name,
+                            "error": outcome.error,
+                        })
+                        .to_string(),
+                    ));
+                    tool_runs.push(outcome);
                 }
             }
         }
@@ -274,6 +286,14 @@ mod tests {
                 .unwrap()
                 .push(format!("source:{}", source.url));
         }
+
+        fn tool_recorded(&self, outcome: &ToolRunOutcome) -> Result<(), String> {
+            self.0
+                .lock()
+                .unwrap()
+                .push(format!("recorded:{}:{}", outcome.call_id, outcome.status));
+            Ok(())
+        }
     }
 
     fn turn(content: &str, calls: Vec<ToolCall>) -> Result<ModelTurn, String> {
@@ -366,6 +386,36 @@ mod tests {
             result.messages.last().unwrap(),
             &ChatMessage::assistant("该网页读取失败，我改用已有资料回答。")
         );
+    }
+
+    #[tokio::test]
+    async fn records_completed_tools_even_if_a_later_model_turn_fails() {
+        let model = FakeModel(Mutex::new(VecDeque::from([
+            turn("", vec![call("1", "read")]),
+            Err("模型连接中断".into()),
+        ])));
+        let tools = FakeTools(Mutex::new(VecDeque::from([tool_result("read")])));
+        let events = RecordingEvents::default();
+
+        let error = run_agent_loop(
+            &model,
+            &tools,
+            &events,
+            vec![],
+            vec![],
+            AgentLoopOptions { max_tool_rounds: 2 },
+            CancellationToken::new(),
+            |_| {},
+        )
+        .await
+        .unwrap_err();
+
+        assert_eq!(error, "模型连接中断");
+        assert!(events
+            .0
+            .lock()
+            .unwrap()
+            .contains(&"recorded:1:completed".into()));
     }
 
     #[tokio::test]

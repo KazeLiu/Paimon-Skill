@@ -105,6 +105,8 @@
 
 ## Task 4: Implement local storage and Agent runtime
 
+**Status (2026-08-19): In progress.** Conversations, messages, complete tool runs, and deduplicated sources now persist in SQLite with conversation/run/call identifiers and cascade deletion. Historical conversations restore their messages, sources, and tool activity. The Agent supports bounded multi-round tool calling, structured tool failures, streaming, and cancellation. Remaining work: provider/prompt database consolidation, browser profile metadata, older-context summarization/trimming, and the finer-grained progress/result event contract.
+
 **Files:**
 - Create: `apps/desktop/src-tauri/src/storage/migrations/001_initial.sql`
 - Create: `apps/desktop/src-tauri/src/storage/mod.rs`
