@@ -16,6 +16,7 @@ import {
   Trash2,
 } from "@lucide/vue";
 import PromptSettingsPage from "@/pages/PromptSettingsPage.vue";
+import PrivacySettingsPage from "@/pages/PrivacySettingsPage.vue";
 import ModelSettingsPage from "@/pages/ModelSettingsPage.vue";
 import MessageList from "@/components/MessageList.vue";
 import BrowserTabs from "@/components/BrowserTabs.vue";
@@ -25,7 +26,7 @@ import type { PageSnapshot } from "@/types/browser";
 import type { ChatSourceEvent, ToolActivity } from "@/types/chat";
 
 type ViewId = "chat" | "browser" | "settings";
-type SettingsSection = "models" | "prompts";
+type SettingsSection = "models" | "prompts" | "privacy";
 
 const activeView = ref<ViewId>("chat");
 const settingsSection = ref<SettingsSection>("models");
@@ -237,9 +238,17 @@ onUnmounted(() => {
           >
             系统提示词
           </button>
+          <button
+            type="button"
+            :class="{ 'is-active': settingsSection === 'privacy' }"
+            @click="settingsSection = 'privacy'"
+          >
+            隐私与数据
+          </button>
         </nav>
         <ModelSettingsPage v-if="settingsSection === 'models'" />
-        <PromptSettingsPage v-else />
+        <PromptSettingsPage v-else-if="settingsSection === 'prompts'" />
+        <PrivacySettingsPage v-else />
       </section>
     </main>
 

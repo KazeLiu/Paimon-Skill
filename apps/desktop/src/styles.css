@@ -974,6 +974,83 @@ textarea:focus-visible {
   color: var(--text);
 }
 
+.privacy-settings-page {
+  max-width: 980px;
+}
+
+.privacy-settings-page > .settings-page-header > svg {
+  color: var(--accent, #4f6df5);
+}
+
+.privacy-settings-list {
+  display: grid;
+  gap: 12px;
+}
+
+.privacy-setting-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 14px;
+  padding: 18px;
+  border: 1px solid var(--border, #dce1ea);
+  border-radius: 8px;
+  background: var(--surface, #fff);
+}
+
+.privacy-setting-icon {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  color: var(--accent, #4f6df5);
+  background: color-mix(in srgb, var(--accent, #4f6df5) 10%, transparent);
+}
+
+.privacy-setting-row h3,
+.privacy-setting-row p,
+.privacy-setting-row small {
+  margin: 0;
+}
+
+.privacy-setting-row p {
+  margin-top: 6px;
+  line-height: 1.55;
+}
+
+.privacy-setting-row small {
+  display: block;
+  margin-top: 8px;
+  color: var(--muted, #6d7481);
+}
+
+.privacy-confirmation {
+  display: grid;
+  gap: 10px;
+  min-width: 260px;
+}
+
+.danger-button {
+  color: #b42318;
+  border-color: #f0b7b2;
+}
+
+.danger-button:hover {
+  background: #fff4f2;
+}
+
+@media (max-width: 760px) {
+  .privacy-setting-row {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .privacy-setting-row > button,
+  .privacy-confirmation {
+    grid-column: 1 / -1;
+  }
+}
+
 .model-settings-page {
   display: grid;
   min-height: 0;

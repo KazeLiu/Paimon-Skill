@@ -204,7 +204,7 @@
 
 ## Task 7: Add persistent WebView2 browser tasks
 
-**Status (2026-08-19): In progress.** The current branch implements application-owned persistent WebView2 profile data, embedded child-WebView tabs, address navigation, back/forward/reload, bounded page extraction, bounded scrolling, generic read-only visible-text clicks, login/challenge detection, “询问当前网页”, and Agent tools for opening, extracting, scrolling, and clicking the active page. Agent browser results are source/tool-run records scoped to the conversation and run. Remaining work: profile clearing UI, explicit wait/cancellation controls, saved dynamic-page fixtures, and broader external-window/login-flow handling.
+**Status (2026-08-19): In progress.** The current branch implements application-owned persistent WebView2 profile data, embedded child-WebView tabs, address navigation, back/forward/reload, bounded page extraction, bounded scrolling, generic read-only visible-text clicks, login/challenge detection, “询问当前网页”, and Agent tools for opening, extracting, scrolling, and clicking the active page. Agent browser results are source/tool-run records scoped to the conversation and run. Profile clearing is now available from the privacy settings page and is guarded by a canonical-path check; remaining work includes explicit wait/cancellation controls, saved dynamic-page fixtures, and broader external-window/login-flow handling.
 
 **Files:**
 - Create: `apps/desktop/src-tauri/src/browser/mod.rs`
@@ -217,9 +217,9 @@
 - Create: `apps/desktop/src/stores/browserStore.ts`
 - Create: `apps/desktop/tests/browser-extraction.test.ts`
 
-- [ ] **Step 1: Create persistent application profiles.**
+- [x] **Step 1: Create persistent application profiles.**
 
-  Use an application-owned WebView2 data directory per browser profile. Persist it across restarts, expose clear-site-data in settings, and never export cookies or local storage to SQLite or model context.
+  Use an application-owned WebView2 data directory per browser profile. Persist it across restarts, expose profile clearing in privacy settings with an explicit confirmation and canonical-path guard, and never export cookies or local storage to SQLite or model context.
 
 - [ ] **Step 2: Implement visible browser tabs.**
 
@@ -272,6 +272,8 @@ Current automated coverage includes URL protocol/credential rejection, side-effe
   Assert extraction of titles, authors, timestamps, comments, metrics, pagination, duplicate removal, and fallback to generic browser extraction after selector failure.
 
 ## Task 9: Package, privacy controls, and verification
+
+**Status (2026-08-19): In progress.** Added a privacy settings page with confirmation-gated clearing of the application-owned WebView2 default Profile. The cleanup command closes embedded tabs, clears in-memory browser state, validates the fixed profile path against its canonical parent, and removes only that profile directory. A user guide documents storage locations, secret handling, login-state isolation, and the read-only web boundary. Remaining work: final NSIS artifact verification and a manual smoke test against a representative logged-in dynamic page.
 
 **Files:**
 - Modify: `apps/desktop/src/pages/SettingsPage.vue`

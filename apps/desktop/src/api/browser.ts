@@ -22,4 +22,4 @@ export const scrollBrowserPage = (id: string, maxRounds = 6) =>
   invoke<PageSnapshot>("scroll_browser_page", { id, maxRounds });
 export const clickBrowserTarget = (id: string, target: string) =>
   invoke<PageSnapshot>("click_browser_target", { id, target });
-
+export const clearBrowserProfile = () => invoke<void>("clear_browser_profile");

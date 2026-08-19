@@ -67,13 +67,34 @@ fn default_bounds() -> BrowserBounds {
     }
 }
 
-fn profile_directory(app: &AppHandle, profile_id: &str) -> Result<std::path::PathBuf, String> {
-    let directory = app
+fn validate_profile_id(profile_id: &str) -> Result<(), String> {
+    if profile_id.is_empty()
+        || profile_id == "."
+        || profile_id == ".."
+        || profile_id.contains('/')
+        || profile_id.contains('\\')
+    {
+        return Err("浏览器 Profile 标识无效".into());
+    }
+    Ok(())
+}
+
+fn profile_path(app: &AppHandle, profile_id: &str) -> Result<std::path::PathBuf, String> {
+    validate_profile_id(profile_id)?;
+    let root = app
         .path()
         .app_local_data_dir()
         .map_err(|error| format!("无法定位应用数据目录：{error}"))?
-        .join("browser-profiles")
-        .join(profile_id);
+        .join("browser-profiles");
+    let directory = root.join(profile_id);
+    if directory.parent() != Some(root.as_path()) {
+        return Err("浏览器 Profile 路径超出允许目录".into());
+    }
+    Ok(directory)
+}
+
+fn profile_directory(app: &AppHandle, profile_id: &str) -> Result<std::path::PathBuf, String> {
+    let directory = profile_path(app, profile_id)?;
     fs::create_dir_all(&directory).map_err(|error| format!("无法创建浏览器 Profile：{error}"))?;
     Ok(directory)
 }
@@ -468,5 +489,46 @@ pub fn browser_profile_status() -> BrowserProfileView {
     BrowserProfileView {
         id: DEFAULT_PROFILE_ID.into(),
         persistent: true,
+    }
+}
+
+#[tauri::command]
+pub fn clear_browser_profile(app: AppHandle, state: State<'_, BrowserState>) -> Result<(), String> {
+    state.set_visible(false);
+    for tab in state.list() {
+        if let Some(webview) = app.get_webview(&tab.id) {
+            webview
+                .close()
+                .map_err(|error| format!("无法关闭浏览器标签：{error}"))?;
+        }
+    }
+    state.clear();
+
+    let profile = profile_path(&app, DEFAULT_PROFILE_ID)?;
+    if profile.exists() {
+        let root = profile
+            .parent()
+            .ok_or_else(|| "浏览器 Profile 父目录无效".to_string())?;
+        let canonical_root = fs::canonicalize(root)
+            .map_err(|error| format!("无法校验浏览器 Profile 父目录：{error}"))?;
+        let canonical_profile = fs::canonicalize(&profile)
+            .map_err(|error| format!("无法校验浏览器 Profile 路径：{error}"))?;
+        if canonical_profile.parent() != Some(canonical_root.as_path()) {
+            return Err("浏览器 Profile 路径未位于允许目录，已拒绝清理".into());
+        }
+        fs::remove_dir_all(&profile).map_err(|error| format!("无法清理浏览器登录态：{error}"))?;
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_profile_id;
+
+    #[test]
+    fn profile_id_rejects_path_traversal() {
+        assert!(validate_profile_id("../other").is_err());
+        assert!(validate_profile_id("nested/profile").is_err());
+        assert!(validate_profile_id("default").is_ok());
     }
 }

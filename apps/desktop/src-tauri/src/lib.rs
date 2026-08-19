@@ -44,7 +44,8 @@ pub fn run() {
             browser::commands::extract_browser_page,
             browser::commands::scroll_browser_page,
             browser::commands::click_browser_target,
-            browser::commands::browser_profile_status
+            browser::commands::browser_profile_status,
+            browser::commands::clear_browser_profile
         ])
         .run(tauri::generate_context!())
         .expect("failed to run Paimon Desktop");

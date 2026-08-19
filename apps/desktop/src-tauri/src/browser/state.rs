@@ -81,6 +81,12 @@ impl BrowserState {
     pub fn is_visible(&self) -> bool {
         self.0.lock().expect("browser state poisoned").visible
     }
+
+    pub fn clear(&self) -> Vec<BrowserTab> {
+        let mut state = self.0.lock().expect("browser state poisoned");
+        state.active_id = None;
+        std::mem::take(&mut state.tabs)
+    }
 }
 
 #[cfg(test)]
@@ -120,5 +126,18 @@ mod tests {
 
         assert_eq!(state.list().len(), 1);
         assert!(state.is_visible());
+    }
+
+    #[test]
+    fn clear_removes_tabs_and_active_selection() {
+        let state = BrowserState::default();
+        state.insert(tab("first"));
+        state.insert(tab("second"));
+
+        let cleared = state.clear();
+
+        assert_eq!(cleared.len(), 2);
+        assert!(state.list().is_empty());
+        assert_eq!(state.active_id(), None);
     }
 }
