@@ -2,11 +2,19 @@ use std::path::{Path, PathBuf};
 
 use super::models::PromptFragment;
 
-const RESOURCE_DIR: &str = "resources/prompts";
 const SKILL_RESOURCE_ID: &str = "genshin-build-wiki";
 
-pub fn default_resource_dir(resource_dir: Option<PathBuf>) -> PathBuf {
-    resource_dir.unwrap_or_else(|| PathBuf::from(RESOURCE_DIR))
+pub fn resolve_resource_dir(resource_root: PathBuf) -> PathBuf {
+    let candidates = [
+        resource_root.join("prompts"),
+        resource_root.join("resources").join("prompts"),
+        resource_root.join("_up_").join("resources").join("prompts"),
+    ];
+
+    candidates
+        .into_iter()
+        .find(|candidate| candidate.join("base-system.md").is_file())
+        .unwrap_or_else(|| resource_root.join("resources").join("prompts"))
 }
 
 pub fn load_fragments(resource_dir: &Path) -> Result<Vec<PromptFragment>, String> {
@@ -78,4 +86,29 @@ fn read_fragment(
         enabled_by_default,
         order,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::resolve_resource_dir;
+
+    #[test]
+    fn resolves_resources_from_tauri_dev_up_directory() {
+        let root = tempfile::tempdir().unwrap();
+        let expected = root.path().join("_up_").join("resources").join("prompts");
+        std::fs::create_dir_all(&expected).unwrap();
+        std::fs::write(expected.join("base-system.md"), "base").unwrap();
+
+        assert_eq!(resolve_resource_dir(root.path().to_path_buf()), expected);
+    }
+
+    #[test]
+    fn resolves_resources_when_resource_dir_already_points_at_resources() {
+        let root = tempfile::tempdir().unwrap();
+        let expected = root.path().join("prompts");
+        std::fs::create_dir_all(&expected).unwrap();
+        std::fs::write(expected.join("base-system.md"), "base").unwrap();
+
+        assert_eq!(resolve_resource_dir(root.path().to_path_buf()), expected);
+    }
 }

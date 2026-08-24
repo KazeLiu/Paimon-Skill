@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from "vue";
-import { Check, CircleAlert, FlaskConical, Plus, Save, Trash2 } from "@lucide/vue";
+import { Check, CircleAlert, FlaskConical, Plus, RefreshCw, Save, Trash2 } from "@lucide/vue";
 
-import { deleteProvider, listProviders, saveProvider, testProvider } from "@/api/providers";
+import { deleteProvider, listProviderModels, listProviders, saveProvider, testProvider } from "@/api/providers";
 import type { CapabilityReport, ProviderConfig, ProviderView } from "@/types/providers";
 
 const providers = ref<ProviderView[]>([]);
@@ -11,31 +11,30 @@ const apiKey = ref("");
 const loading = ref(true);
 const saving = ref(false);
 const testing = ref(false);
+const loadingModels = ref(false);
+const models = ref<string[]>([]);
 const feedback = ref("");
 const errorMessage = ref("");
 const report = ref<CapabilityReport | null>(null);
 
 const form = reactive<ProviderConfig>(blankProvider());
+const emit = defineEmits<{
+  "provider-updated": [provider: ProviderView];
+  "provider-deleted": [id: string];
+}>();
 const selectedProvider = computed(() => providers.value.find((provider) => provider.config.id === selectedId.value));
-const capabilityRows = computed(() => {
-  if (!report.value) return [];
-  return [
-    { label: "基础请求", status: report.value.basicRequest },
-    { label: "流式输出", status: report.value.streaming },
-    { label: "工具调用", status: report.value.toolCalling },
-  ];
-});
+const capabilityRows = computed(() => report.value
+  ? [{ label: "Responses 请求", status: report.value.basicRequest }]
+  : []);
 
 function blankProvider(): ProviderConfig {
   return {
     id: `provider-${Date.now()}`,
     name: "",
-    baseUrl: "https://api.deepseek.com",
-    model: "deepseek-chat",
+    baseUrl: "",
+    model: "",
     secretRef: "",
     timeoutMs: 30000,
-    temperature: 0.3,
-    maxTokens: 2048,
     streaming: true,
     toolCalling: true,
     enabled: true,
@@ -46,6 +45,7 @@ function selectProvider(provider: ProviderView) {
   Object.assign(form, provider.config);
   selectedId.value = provider.config.id;
   apiKey.value = "";
+  models.value = provider.config.model ? [provider.config.model] : [];
   feedback.value = "";
   errorMessage.value = "";
   report.value = null;
@@ -55,6 +55,7 @@ function newProvider() {
   Object.assign(form, blankProvider());
   selectedId.value = null;
   apiKey.value = "";
+  models.value = [];
   feedback.value = "";
   errorMessage.value = "";
   report.value = null;
@@ -95,6 +96,7 @@ async function save() {
     if (index >= 0) providers.value[index] = saved;
     else providers.value.push(saved);
     selectProvider(saved);
+    emit("provider-updated", saved);
     feedback.value = "已保存模型配置";
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : String(error);
@@ -108,6 +110,7 @@ async function remove() {
   saving.value = true;
   try {
     await deleteProvider(selectedId.value);
+    emit("provider-deleted", selectedId.value);
     providers.value = providers.value.filter((provider) => provider.config.id !== selectedId.value);
     newProvider();
   } catch (error) {
@@ -130,6 +133,22 @@ async function test() {
   }
 }
 
+async function fetchModels() {
+  loadingModels.value = true;
+  feedback.value = "";
+  errorMessage.value = "";
+  report.value = null;
+  try {
+    models.value = await listProviderModels(formInput());
+    if (!models.value.includes(form.model)) form.model = models.value[0] ?? "";
+    feedback.value = `已获取 ${models.value.length} 个模型`;
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : String(error);
+  } finally {
+    loadingModels.value = false;
+  }
+}
+
 onMounted(load);
 </script>
 
@@ -139,7 +158,7 @@ onMounted(load);
       <div>
         <span class="eyebrow">模型设置</span>
         <h2>连接你的模型</h2>
-        <p>支持 DeepSeek、中转站、Ollama、LM Studio 和其他 OpenAI-Compatible 服务。</p>
+        <p>统一使用 Responses API；填写地址和 Key 后获取模型，再选择并测试连接。</p>
       </div>
       <button class="secondary-button" type="button" data-action="new-provider" @click="newProvider">
         <Plus :size="16" /> 新增模型
@@ -172,7 +191,7 @@ onMounted(load);
       <form class="provider-editor" @submit.prevent="save">
         <div class="editor-heading">
           <div>
-            <span class="eyebrow">OpenAI-Compatible</span>
+            <span class="eyebrow">Responses API</span>
             <h3>{{ form.name || "未命名模型" }}</h3>
           </div>
           <button v-if="selectedProvider" class="icon-text-button danger-button" type="button" @click="remove">
@@ -185,10 +204,6 @@ onMounted(load);
             <span>显示名称</span>
             <input data-field="provider-name" v-model="form.name" required placeholder="例如：DeepSeek 官方" />
           </label>
-          <label class="form-field">
-            <span>模型 ID</span>
-            <input data-field="model-id" v-model="form.model" required placeholder="例如：deepseek-chat" />
-          </label>
           <label class="form-field form-field-wide">
             <span>Base URL</span>
             <input data-field="base-url" v-model="form.baseUrl" required placeholder="https://api.example.com/v1" />
@@ -198,19 +213,19 @@ onMounted(load);
             <input data-field="api-key" v-model="apiKey" type="password" autocomplete="new-password" placeholder="留空则使用已保存的 Key" />
             <em v-if="selectedProvider?.hasApiKey">已安全保存 API Key</em>
           </label>
-          <label class="form-field">
-            <span>温度</span>
-            <input v-model.number="form.temperature" type="number" min="0" max="2" step="0.1" />
+          <label class="form-field form-field-wide model-picker-field">
+            <span>模型</span>
+            <span class="model-picker-row">
+              <select data-field="model-id" v-model="form.model" required :disabled="models.length === 0">
+                <option value="" disabled>{{ loadingModels ? "正在获取模型..." : "请先获取模型" }}</option>
+                <option v-for="model in models" :key="model" :value="model">{{ model }}</option>
+              </select>
+              <button class="secondary-button" type="button" data-action="fetch-models" :disabled="loadingModels || testing || saving" @click="fetchModels">
+                <RefreshCw :size="16" :class="{ 'is-spinning': loadingModels }" />
+                {{ loadingModels ? "获取中" : "获取模型" }}
+              </button>
+            </span>
           </label>
-          <label class="form-field">
-            <span>最大输出 Token</span>
-            <input v-model.number="form.maxTokens" type="number" min="1" step="128" />
-          </label>
-        </div>
-
-        <div class="capability-toggles">
-          <label><input v-model="form.streaming" type="checkbox" /> 启用流式输出</label>
-          <label><input v-model="form.toolCalling" type="checkbox" /> 启用工具调用</label>
         </div>
 
         <div v-if="report" class="capability-report" aria-live="polite">
@@ -220,6 +235,27 @@ onMounted(load);
               {{ entry.label }}
             </span>
             <small>{{ entry.status.message }}</small>
+            <details v-if="entry.status.diagnostic" class="capability-diagnostic" data-role="capability-diagnostic">
+              <summary>查看详细日志</summary>
+              <dl>
+                <dt>阶段</dt><dd>{{ entry.status.diagnostic.stage }}</dd>
+                <dt>接口</dt><dd>{{ entry.status.diagnostic.endpoint }}</dd>
+                <dt>HTTP</dt><dd>{{ entry.status.diagnostic.httpStatus == null ? "未收到响应" : `HTTP ${entry.status.diagnostic.httpStatus}` }}</dd>
+                <dt>Content-Type</dt><dd>{{ entry.status.diagnostic.contentType || "未提供" }}</dd>
+              </dl>
+              <div v-if="entry.status.diagnostic.responseHeaders.length" class="diagnostic-block">
+                <strong>响应头（安全字段）</strong>
+                <pre>{{ entry.status.diagnostic.responseHeaders.join("\n") }}</pre>
+              </div>
+              <div v-if="entry.status.diagnostic.parseError" class="diagnostic-block">
+                <strong>解析错误</strong>
+                <pre>{{ entry.status.diagnostic.parseError }}</pre>
+              </div>
+              <div v-if="entry.status.diagnostic.responseBody" class="diagnostic-block">
+                <strong>响应正文{{ entry.status.diagnostic.truncated ? "（已截断）" : "" }}</strong>
+                <pre>{{ entry.status.diagnostic.responseBody }}</pre>
+              </div>
+            </details>
           </div>
         </div>
 
@@ -228,10 +264,10 @@ onMounted(load);
           <span v-else-if="errorMessage" class="is-error"><CircleAlert :size="16" /> {{ errorMessage }}</span>
           <span v-else>API Key 不会显示在配置文件或日志中。</span>
           <div class="settings-actions">
-            <button class="secondary-button" type="button" data-action="test-provider" :disabled="testing || saving" @click="test">
+            <button class="secondary-button" type="button" data-action="test-provider" :disabled="testing || saving || loadingModels || !form.model" @click="test">
               <FlaskConical :size="16" /> {{ testing ? "测试中" : "测试连接" }}
             </button>
-            <button class="primary-button" type="button" data-action="save-provider" :disabled="saving || testing" @click="save">
+            <button class="primary-button" type="button" data-action="save-provider" :disabled="saving || testing || loadingModels || !form.model" @click="save">
               <Save :size="16" /> {{ saving ? "保存中" : "保存配置" }}
             </button>
           </div>

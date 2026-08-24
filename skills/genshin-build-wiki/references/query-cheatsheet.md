@@ -45,6 +45,30 @@ curl -sS "https://r.jina.ai/<OBC条目URL>"
 4. 攻略未给出完整效果时，仅补查被推荐的套装/武器页面。
 5. 用户问实战取舍时，再按 [social-platforms.md](social-platforms.md) 查询社区。
 
+## 多语言名称与考据
+
+英文 Genshin Impact Wiki 网页受验证页阻挡时，可用公开 MediaWiki API。先搜索标题，再读取页面章节或 wikitext：
+
+```bash
+curl -sS -G "https://genshin-impact.fandom.com/api.php" --data-urlencode "action=query" --data-urlencode "list=search" --data-urlencode "srsearch=Narzissenkreuz" --data-urlencode "srlimit=10" --data-urlencode "format=json" --data-urlencode "formatversion=2"
+curl -sS -G "https://genshin-impact.fandom.com/api.php" --data-urlencode "action=parse" --data-urlencode "page=Narzissenkreuz Ordo" --data-urlencode "prop=wikitext|sections|displaytitle" --data-urlencode "format=json" --data-urlencode "formatversion=2"
+```
+
+俄语 Wiki 使用 `/ru/api.php`：
+
+```bash
+curl -sS -G "https://genshin-impact.fandom.com/ru/api.php" --data-urlencode "action=query" --data-urlencode "list=search" --data-urlencode "srsearch=Нарциссенкрейц" --data-urlencode "srlimit=10" --data-urlencode "format=json" --data-urlencode "formatversion=2"
+```
+
+Project Amber 用于浏览多语言游戏文本：
+
+```text
+https://ambr.top/en/archive
+https://ambr.top/ru/archive
+```
+
+具体证据分级与知乎 / Reddit 考据线索规则见 [story-research.md](story-research.md)。
+
 ## 回退规则
 
 | 失败 | 动作 |

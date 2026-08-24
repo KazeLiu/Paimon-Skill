@@ -1,35 +1,8 @@
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 pub const MAX_PAGE_TEXT_CHARS: usize = 16_000;
 pub const MAX_PAGE_LINKS: usize = 100;
-
-#[derive(Debug, Clone, Copy, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct BrowserBounds {
-    pub x: f64,
-    pub y: f64,
-    pub width: f64,
-    pub height: f64,
-}
-
-impl BrowserBounds {
-    pub fn validate(&self) -> Result<(), String> {
-        if !self.x.is_finite()
-            || !self.y.is_finite()
-            || !self.width.is_finite()
-            || !self.height.is_finite()
-        {
-            return Err("浏览器区域坐标无效".into());
-        }
-        if self.width <= 0.0 || self.height <= 0.0 {
-            return Err("浏览器区域尺寸必须大于 0".into());
-        }
-        if self.x < 0.0 || self.y < 0.0 || self.width > 20_000.0 || self.height > 20_000.0 {
-            return Err("浏览器区域超出允许范围".into());
-        }
-        Ok(())
-    }
-}
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -66,6 +39,16 @@ pub struct PageSnapshot {
     pub challenge_reason: Option<String>,
     #[serde(default)]
     pub truncated: bool,
+    #[serde(default)]
+    pub structure: Option<Value>,
+    #[serde(default)]
+    pub snapshot_generation: Option<u64>,
+    #[serde(default)]
+    pub page_fingerprint: Option<Value>,
+    #[serde(default)]
+    pub interactive_total: usize,
+    #[serde(default)]
+    pub shadow_root_count: usize,
 }
 
 impl PageSnapshot {
@@ -87,7 +70,24 @@ impl PageSnapshot {
             login_challenge,
             challenge_reason,
             truncated: text_was_truncated || links_were_truncated,
+            structure: None,
+            snapshot_generation: None,
+            page_fingerprint: None,
+            interactive_total: 0,
+            shadow_root_count: 0,
         }
+    }
+
+    pub fn bound_in_place(&mut self) {
+        let text_was_truncated = self.text.chars().count() > MAX_PAGE_TEXT_CHARS;
+        let links_were_truncated = self.links.len() > MAX_PAGE_LINKS;
+        if text_was_truncated {
+            self.text = self.text.chars().take(MAX_PAGE_TEXT_CHARS).collect();
+        }
+        if links_were_truncated {
+            self.links.truncate(MAX_PAGE_LINKS);
+        }
+        self.truncated |= text_was_truncated || links_were_truncated;
     }
 }
 
@@ -143,18 +143,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn browser_bounds_reject_non_positive_dimensions() {
-        let bounds = BrowserBounds {
-            x: 0.0,
-            y: 100.0,
-            width: 0.0,
-            height: 600.0,
-        };
-
-        assert_eq!(bounds.validate().unwrap_err(), "浏览器区域尺寸必须大于 0");
-    }
-
-    #[test]
     fn scroll_tracker_stops_after_two_unchanged_samples() {
         let mut tracker = ScrollTracker::default();
 
@@ -183,6 +171,31 @@ mod tests {
 
         assert_eq!(snapshot.text.chars().count(), MAX_PAGE_TEXT_CHARS);
         assert_eq!(snapshot.links.len(), MAX_PAGE_LINKS);
+        assert!(snapshot.truncated);
+    }
+
+    #[test]
+    fn bounding_a_snapshot_keeps_the_semantic_structure() {
+        let structure = serde_json::json!({"tree": {"type": "document"}});
+        let mut snapshot = PageSnapshot {
+            title: "Example".into(),
+            url: "https://example.com".into(),
+            text: "x".repeat(MAX_PAGE_TEXT_CHARS + 1),
+            links: Vec::new(),
+            login_challenge: false,
+            challenge_reason: None,
+            truncated: false,
+            structure: Some(structure.clone()),
+            snapshot_generation: Some(3),
+            page_fingerprint: None,
+            interactive_total: 1,
+            shadow_root_count: 0,
+        };
+
+        snapshot.bound_in_place();
+
+        assert_eq!(snapshot.structure, Some(structure));
+        assert_eq!(snapshot.snapshot_generation, Some(3));
         assert!(snapshot.truncated);
     }
 }

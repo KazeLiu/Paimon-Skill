@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::attachments::ChatAttachment;
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct ProviderConfig {
@@ -10,8 +12,6 @@ pub struct ProviderConfig {
     pub model: String,
     pub secret_ref: String,
     pub timeout_ms: u64,
-    pub temperature: f32,
-    pub max_tokens: u32,
     pub streaming: bool,
     pub tool_calling: bool,
     pub enabled: bool,
@@ -21,6 +21,8 @@ pub struct ProviderConfig {
 pub struct ChatMessage {
     pub role: String,
     pub content: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub attachments: Vec<ChatAttachment>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -38,6 +40,15 @@ impl ChatMessage {
         Self::text("user", content)
     }
 
+    pub fn user_with_attachments(
+        content: impl Into<String>,
+        attachments: Vec<ChatAttachment>,
+    ) -> Self {
+        let mut message = Self::text("user", content);
+        message.attachments = attachments;
+        message
+    }
+
     pub fn assistant(content: impl Into<String>) -> Self {
         Self::text("assistant", content)
     }
@@ -46,6 +57,7 @@ impl ChatMessage {
         Self {
             role: "tool".into(),
             content: content.into(),
+            attachments: Vec::new(),
             name: None,
             tool_call_id: Some(tool_call_id.into()),
             tool_calls: None,
@@ -56,6 +68,7 @@ impl ChatMessage {
         Self {
             role: "assistant".into(),
             content: content.into(),
+            attachments: Vec::new(),
             name: None,
             tool_call_id: None,
             tool_calls: Some(
@@ -77,6 +90,7 @@ impl ChatMessage {
         Self {
             role: role.into(),
             content: content.into(),
+            attachments: Vec::new(),
             name: None,
             tool_call_id: None,
             tool_calls: None,
@@ -120,8 +134,6 @@ pub enum StreamEvent {
 #[serde(rename_all = "camelCase")]
 pub struct CapabilityReport {
     pub basic_request: CapabilityStatus,
-    pub streaming: CapabilityStatus,
-    pub tool_calling: CapabilityStatus,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -129,6 +141,20 @@ pub struct CapabilityReport {
 pub struct CapabilityStatus {
     pub supported: bool,
     pub message: String,
+    pub diagnostic: Option<CapabilityDiagnostic>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct CapabilityDiagnostic {
+    pub stage: String,
+    pub endpoint: String,
+    pub http_status: Option<u16>,
+    pub content_type: Option<String>,
+    pub response_headers: Vec<String>,
+    pub response_body: String,
+    pub parse_error: Option<String>,
+    pub truncated: bool,
 }
 
 impl CapabilityStatus {
@@ -136,13 +162,15 @@ impl CapabilityStatus {
         Self {
             supported: true,
             message: message.into(),
+            diagnostic: None,
         }
     }
 
-    pub fn failed(message: impl Into<String>) -> Self {
+    pub fn failed_with(message: impl Into<String>, diagnostic: CapabilityDiagnostic) -> Self {
         Self {
             supported: false,
             message: message.into(),
+            diagnostic: Some(diagnostic),
         }
     }
 }

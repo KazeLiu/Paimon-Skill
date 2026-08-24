@@ -27,7 +27,8 @@
 
 - 查询角色配装、圣遗物、武器、配队、培养材料与玩法机制
 - 查询当前卡池、活动、版本与深境螺旋等时效信息
-- 按需补充小红书、知乎和 B站的玩家经验
+- 汇总跨任务人物故事，并对照英文 / 俄文名称、词源与文化原型
+- 按需补充小红书、知乎具体回答、B站和 Reddit 的社区经验或考据线索
 - 使用轻量派蒙语气回答，并附实际查询过的来源链接
 
 ## 示例
@@ -446,8 +447,9 @@
 | 第一方资料 | [米游社原神观测枢](https://baike.mihoyo.com/ys/obc/?visit_device=pc&bbs_presentation_style=no_header) | 基础档案、材料、数值与官方说明 |
 | 社区维护 Wiki | [B站原神 WIKI](https://wiki.biligame.com/ys/首页) | 图鉴、机制与角色攻略 |
 | 社区经验 | 小红书、知乎、B站视频 | 实战体验、平替与深渊案例 |
+| 多语言考据 | 英文/俄文 Genshin Impact Wiki、Project Amber | 译名对照、词源、神话/文学/历史原型 |
 
-攻略/评价类问题（配装、配队、取舍、角色评价、抽取建议、实战、深渊、视频、解谜解法）**默认主动查小红书 + B站**补充玩家经验；硬事实、剧情考据、地图点位则以 OBC/BWiki 官方为准，不查社交平台。社区查询需要 OpenCLI，未装或未登录时会如实说明「本次未覆盖社区经验」。
+攻略/评价类问题默认主动查小红书 + B站补充玩家经验。普通剧情事实以 OBC/BWiki 和游戏文本为准；名称词源、翻译差异、隐喻与文化原型会补充多语言 Wiki / Project Amber，并按需读取知乎具体回答或 r/Genshin_Lore。社区分析只作线索，不替代官方或游戏文本事实。
 
 ## 让 Agent 全局可用（可选）
 
@@ -469,11 +471,11 @@
 
 ## 可选社区依赖
 
-BWiki 和 OBC 查询不需要任何额外依赖。只有查询**小红书 / 知乎 / B站**社区经验时才需要 **OpenCLI**——它是「npm 命令行 + Chrome 浏览器扩展」的组合，复用你已登录的浏览器读取页面（不需要 API Key，也不用粘贴 Cookie）。
+BWiki、OBC、多语言 Wiki 与 Project Amber 的公开页面/API不需要任何额外依赖。只有查询**小红书 / 知乎 / B站 / Reddit**社区内容时才可能需要 **OpenCLI**——它是「npm 命令行 + Chrome 浏览器扩展」的组合，复用你已登录的浏览器读取页面（不需要 API Key，也不用粘贴 Cookie）。
 
 想看玩家实战经验就推荐装上。可以自己装，也可以直接说「帮我装一下 OpenCLI」让派蒙代装或一步步指导（实际执行安装前都会先征得你同意）。**完整两步安装（含扩展的应用商店 / 离线两种装法）见 [skills/genshin-build-wiki/INSTALL.md](skills/genshin-build-wiki/INSTALL.md)。**
 
-若 OpenCLI 已装但某个**平台能力**（`xiaohongshu/zhihu/bilibili` 平台子命令）为 `false`，只有在你**明确同意更新或修复**后，才会重装或升级。
+若 OpenCLI 已装但某个**平台能力**（`xiaohongshu/zhihu/bilibili/reddit` 平台子命令）为 `false`，只有在你**明确同意更新或修复**后，才会重装或升级。
 
 不装时，skill 继续使用 BWiki + OBC，并明确说明没有覆盖社区经验。
 
@@ -482,7 +484,7 @@ BWiki 和 OBC 查询不需要任何额外依赖。只有查询**小红书 / 知�
 合格回答应：
 
 1. 先给可执行结论，再解释条件与取舍。
-2. 把 OBC 标为第一方资料、BWiki 标为社区维护 Wiki、社交内容标为社区经验。
+2. 把 OBC 标为第一方资料、BWiki 标为社区维护 Wiki、外语资料标为本地化/多语言考据、社交内容标为社区经验或社区分析。
 3. “当前/最新”信息重新查询，并附绝对查询时间、时区、适用版本或深渊期数。
 4. 只引用实际读取过的页面，给出标题与完整 URL。
 5. 部分来源失败时说明覆盖范围；全部失败时不凭记忆编造。
@@ -508,12 +510,28 @@ Paimon-Skill/
         └── references/
             ├── sources.md
             ├── query-cheatsheet.md
-            └── social-platforms.md
+            ├── social-platforms.md
+            └── story-research.md
 ```
 
 > [AGENTS.md](AGENTS.md) 是 SKILL.md 的内联精简版，两者规则保持一致：进目录即生效靠前者，插件生态发现靠后者。
 
 ## 开发与测试
+
+### Tauri 2 桌面应用（开发中）
+
+仓库内的 `apps/desktop/` 是独立 Windows 桌面端。它可以配置 OpenAI-Compatible 模型和系统提示词，保存本地连续对话，并通过应用自己的 WebView2 Profile 打开网页、保留登录态、滚动读取、执行受限的只读点击，再把当前网页内容带回对话。
+
+桌面端的数据目录、API Key 存储方式、网页登录态清理和网页自动化边界见 [桌面端使用与隐私说明](docs/desktop-user-guide.md)。
+
+```powershell
+npm run desktop:test
+cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml
+npm run desktop:dev
+npm run desktop:build
+```
+
+当前浏览器层不承诺任意网站全自动操作，不绕过验证码，也不会执行登录、发布、点赞、删除、下载或表单提交。B站、小红书、知乎的评论与页面结构适配仍在后续阶段。
 
 ```bash
 npm test

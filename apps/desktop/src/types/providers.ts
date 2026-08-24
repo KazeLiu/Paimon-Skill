@@ -5,8 +5,6 @@ export interface ProviderConfig {
   model: string;
   secretRef: string;
   timeoutMs: number;
-  temperature: number;
-  maxTokens: number;
   streaming: boolean;
   toolCalling: boolean;
   enabled: boolean;
@@ -25,10 +23,20 @@ export interface SaveProviderInput {
 export interface CapabilityStatus {
   supported: boolean;
   message: string;
+  diagnostic: CapabilityDiagnostic | null;
+}
+
+export interface CapabilityDiagnostic {
+  stage: string;
+  endpoint: string;
+  httpStatus: number | null;
+  contentType: string | null;
+  responseHeaders: string[];
+  responseBody: string;
+  parseError: string | null;
+  truncated: boolean;
 }
 
 export interface CapabilityReport {
   basicRequest: CapabilityStatus;
-  streaming: CapabilityStatus;
-  toolCalling: CapabilityStatus;
 }

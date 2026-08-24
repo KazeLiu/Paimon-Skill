@@ -4,15 +4,26 @@ use crate::{providers::models::ChatMessage, storage::models::Message};
 pub const MAX_MESSAGE_CHARS: usize = 12_000;
 /// Maximum content retained across the system prompt and historical messages.
 pub const MAX_CONTEXT_CHARS: usize = 48_000;
+/// Maximum raw attachment bytes retained across historical messages.
+pub const MAX_CONTEXT_ATTACHMENT_BYTES: u64 = 20 * 1024 * 1024;
 const TRUNCATION_SUFFIX: &str = "\n[该消息已按上下文上限截断]";
 
 pub fn build_messages(system_prompt: &str, history: &[Message]) -> Vec<ChatMessage> {
+    build_messages_with_attachment_budget(system_prompt, history, MAX_CONTEXT_ATTACHMENT_BYTES)
+}
+
+fn build_messages_with_attachment_budget(
+    system_prompt: &str,
+    history: &[Message],
+    attachment_budget: u64,
+) -> Vec<ChatMessage> {
     let system_content = bound_message_content(system_prompt);
     let system_chars = system_content.chars().count();
     let system = ChatMessage::system(system_content);
     let history_budget = MAX_CONTEXT_CHARS.saturating_sub(system_chars);
     let mut selected = Vec::new();
     let mut used_chars = 0usize;
+    let mut used_attachment_bytes = 0u64;
 
     // Walk backwards so the newest messages win. We only split a message when
     // the message itself exceeds its hard per-message limit.
@@ -28,7 +39,29 @@ pub fn build_messages(system_prompt: &str, history: &[Message]) -> Vec<ChatMessa
         }
         used_chars += chars;
         selected.push(match role {
-            "user" => ChatMessage::user(content),
+            "user" => {
+                let attachments = message
+                    .attachments
+                    .iter()
+                    .filter(|attachment| {
+                        if crate::attachments::validate_attachments(std::slice::from_ref(
+                            attachment,
+                        ))
+                        .is_err()
+                        {
+                            return false;
+                        }
+                        let next = used_attachment_bytes.saturating_add(attachment.size);
+                        if next > attachment_budget {
+                            return false;
+                        }
+                        used_attachment_bytes = next;
+                        true
+                    })
+                    .cloned()
+                    .collect();
+                ChatMessage::user_with_attachments(content, attachments)
+            }
             _ => ChatMessage::assistant(content),
         });
     }
@@ -64,6 +97,7 @@ mod tests {
                 conversation_id: "c".into(),
                 role: "user".into(),
                 content: "问题".into(),
+                attachments: vec![],
                 created_at: "1".into(),
             },
             Message {
@@ -71,6 +105,7 @@ mod tests {
                 conversation_id: "c".into(),
                 role: "assistant".into(),
                 content: "回答".into(),
+                attachments: vec![],
                 created_at: "2".into(),
             },
         ];
@@ -89,6 +124,7 @@ mod tests {
             conversation_id: "c".into(),
             role: role.into(),
             content: content.into(),
+            attachments: vec![],
             created_at: id.into(),
         }
     }
@@ -158,5 +194,43 @@ mod tests {
                 .sum::<usize>(),
             MAX_CONTEXT_CHARS
         );
+    }
+
+    #[test]
+    fn keeps_recent_attachments_within_the_context_attachment_budget() {
+        let mut older = message("1", "user", "旧附件");
+        older.attachments = vec![crate::attachments::ChatAttachment::image(
+            "old.png",
+            "image/png",
+            "data:image/png;base64,YQ==",
+            1,
+        )];
+        let mut newest = message("2", "user", "新附件");
+        newest.attachments = vec![crate::attachments::ChatAttachment::image(
+            "new.png",
+            "image/png",
+            "data:image/png;base64,YQ==",
+            1,
+        )];
+
+        let messages = build_messages_with_attachment_budget("system", &[older, newest], 1);
+
+        assert!(messages[1].attachments.is_empty());
+        assert_eq!(messages[2].attachments[0].name, "new.png");
+    }
+
+    #[test]
+    fn drops_historical_attachments_with_inconsistent_declared_sizes() {
+        let mut corrupt = message("1", "user", "损坏附件");
+        corrupt.attachments = vec![crate::attachments::ChatAttachment::file(
+            "corrupt.txt",
+            "text/plain",
+            "data:text/plain;base64,YWJj",
+            1,
+        )];
+
+        let messages = build_messages("system", &[corrupt]);
+
+        assert!(messages[1].attachments.is_empty());
     }
 }

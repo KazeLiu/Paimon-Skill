@@ -1,5 +1,6 @@
 pub mod agent_tools;
 pub mod commands;
+pub mod login;
 pub mod models;
 pub mod policy;
 pub mod scripts;
@@ -51,6 +52,11 @@ mod agent_tools_tests {
                 login_challenge: true,
                 challenge_reason: Some("captcha".into()),
                 truncated: true,
+                structure: None,
+                snapshot_generation: None,
+                page_fingerprint: None,
+                interactive_total: 0,
+                shadow_root_count: 0,
             },
         );
 
@@ -63,5 +69,52 @@ mod agent_tools_tests {
         assert_eq!(result.source.as_ref().unwrap().title, "动态页面");
         assert_eq!(result.source.as_ref().unwrap().platform, "example.com");
         assert_eq!(result.links[0].title, "下一页");
+    }
+
+    #[test]
+    fn agent_browser_definitions_expose_semantic_lookup_and_click() {
+        let names = super::agent_tools::definitions()
+            .into_iter()
+            .map(|definition| definition.function.name)
+            .collect::<Vec<_>>();
+
+        assert!(names.contains(&"browser_find_context".to_string()));
+        assert!(names.contains(&"browser_click_element".to_string()));
+    }
+
+    #[test]
+    fn browser_snapshot_keeps_a_valid_bounded_semantic_tree_for_the_model() {
+        let structure = serde_json::json!({
+            "tree": {
+                "type": "document",
+                "children": (0..300).map(|index| serde_json::json!({
+                    "type": "button",
+                    "elementId": format!("page-{index}"),
+                    "name": "很长的按钮标签".repeat(50),
+                })).collect::<Vec<_>>(),
+            }
+        });
+        let result = snapshot_to_tool_result(
+            "browser_extract_page",
+            &tab("active", "default"),
+            PageSnapshot {
+                title: "动态页面".into(),
+                url: "https://example.com".into(),
+                text: "正文".repeat(10_000),
+                links: Vec::new(),
+                login_challenge: false,
+                challenge_reason: None,
+                truncated: false,
+                structure: Some(structure),
+                snapshot_generation: Some(1),
+                page_fingerprint: None,
+                interactive_total: 300,
+                shadow_root_count: 0,
+            },
+        );
+
+        assert!(result.content.chars().count() < 24_000);
+        let encoded = result.content.split("语义 DOM：\n").nth(1).unwrap().trim();
+        assert!(serde_json::from_str::<serde_json::Value>(encoded).is_ok());
     }
 }

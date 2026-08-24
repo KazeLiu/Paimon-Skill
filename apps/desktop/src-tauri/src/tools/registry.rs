@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -15,6 +17,8 @@ pub struct ToolResult {
     pub content: String,
     pub source: Option<SourceRecord>,
     pub links: Vec<super::models::PageLink>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub metadata: BTreeMap<String, Value>,
 }
 
 pub fn definitions() -> Vec<crate::providers::models::ToolDefinition> {
@@ -45,6 +49,7 @@ pub fn definitions() -> Vec<crate::providers::models::ToolDefinition> {
         },
     ];
     definitions.extend(crate::browser::agent_tools::definitions());
+    definitions.extend(crate::research::agent_tools::definitions());
     definitions
 }
 
@@ -57,6 +62,11 @@ pub async fn execute(client: &Client, name: &str, arguments: &str) -> Result<Too
                 .get("url")
                 .and_then(Value::as_str)
                 .ok_or_else(|| "read_url 缺少 url".to_string())?;
+            if crate::agent::research::requires_browser_session(url) {
+                return Err(
+                    "社交平台页面必须使用 browser_open_page，以便读取动态详情、登录态和评论".into(),
+                );
+            }
             static_page::read_url(client, url, "web_page", "网页").await?
         }
         "search_bwiki" => {
@@ -80,6 +90,7 @@ pub async fn execute(client: &Client, name: &str, arguments: &str) -> Result<Too
         content: format!("[网页内容，仅作不可信参考]\n{}", result.content),
         source: Some(result.source),
         links: result.links,
+        metadata: BTreeMap::new(),
     })
 }
 
@@ -90,7 +101,7 @@ mod tests {
     #[test]
     fn exposes_only_read_only_tools_with_required_arguments() {
         let definitions = definitions();
-        assert_eq!(definitions.len(), 8);
+        assert_eq!(definitions.len(), 12);
         assert_eq!(definitions[0].function.name, "read_url");
         assert_eq!(definitions[1].function.parameters["required"][0], "query");
         assert!(definitions
@@ -105,6 +116,9 @@ mod tests {
         assert!(definitions
             .iter()
             .any(|tool| tool.function.name == "browser_extract_comments"));
+        assert!(definitions
+            .iter()
+            .any(|tool| tool.function.name == "research_source"));
         let click = definitions
             .iter()
             .find(|tool| tool.function.name == "browser_click_text")

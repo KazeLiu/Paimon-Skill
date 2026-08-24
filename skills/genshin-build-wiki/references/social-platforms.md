@@ -1,6 +1,6 @@
 # 社区平台查询指南
 
-对「攻略/评价类」问题（配装、配队、取舍、角色评价、抽取建议、实战手感、深渊、视频攻略、解谜解法），**社区查询是默认步骤**，不必等用户点名。对「硬事实 / 剧情考据 / 地图点位」问题则不查社区，以 OBC/BWiki 为准。统一使用 OpenCLI；执行前按 `SKILL.md` 检测依赖，缺失或未登录时先告知用户并按需引导安装，降级时如实说明「本次未覆盖社区经验」。
+对「攻略/评价类」问题（配装、配队、取舍、角色评价、抽取建议、实战手感、深渊、视频攻略、解谜解法），**社区查询是默认步骤**，不必等用户点名。硬事实、普通剧情梗概与地图点位不依赖社区；名称词源、翻译差异、隐喻与文化原型考据可选择性读取知乎回答或 r/Genshin_Lore，并明确它们只是分析参考。统一使用 OpenCLI；执行前按 `SKILL.md` 检测依赖，缺失或未登录时先告知用户并按需引导安装，降级时如实说明未覆盖的平台。
 
 ## 通用原则
 
@@ -25,11 +25,31 @@ opencli xiaohongshu note "NOTE_URL" -f json
 ## 知乎
 
 ```bash
-opencli zhihu search "那维莱特圣遗物" -f json
-opencli zhihu question "QUESTION_URL_OR_ID" -f json
+opencli zhihu search "水仙十字 玫瑰十字会" --type answer --limit 10 -f json
+opencli zhihu question QUESTION_ID --limit 10 -f json
+opencli zhihu answer-detail ANSWER_ID -f json
 ```
 
-优先有机制分析、计算过程或明确配装前提的回答。旧回答只有在机制未变化且能核对时才使用，并标注原发布时间。
+搜索结果和问题页只负责发现候选回答；**问题页不能代替回答**，引用观点前必须用 `answer-detail` 读取完整回答。不要使用 `opencli zhihu answer`，该命令是发布回答的写操作。
+
+优先选择具备以下特征的回答：
+
+- 作者说明资料来源、引用游戏文本或展示推理链；
+- 攻略类包含机制分析、计算过程、测试条件或明确配装前提；
+- 考据类能把名称、原句、现实典故和推断边界分开；
+- 观点可由 BWiki/OBC、跨语言游戏文本或独立资料交叉核对。
+
+引用时记录**作者、赞同、发布时间、更新时间、完整回答 URL**。赞同数只用于理解传播度，不代表正确性；旧回答只有在剧情 / 机制未被后续版本改写且能复核时才使用。
+
+## Reddit / r/Genshin_Lore
+
+```bash
+opencli reddit search "Genshin Narzissenkreuz etymology" -f json
+opencli reddit subreddit Genshin_Lore -f json
+opencli reddit read POST_ID -f json
+```
+
+适合发现英语社区对词源、神话、文学和历史原型的讨论。必须读取帖子正文与引用资料，区分作者证据和评论区补充；热门理论不能当作剧情事实。若网页公开可读，也可用当前 Agent 的网页阅读能力，无需为了 Reddit 强制安装 OpenCLI。
 
 ## B站
 
@@ -46,7 +66,8 @@ opencli bilibili subtitle "BV号" -f json
 | 用户意图 | 建议社区集合 |
 |----------|--------------|
 | 硬事实（套装/武器特效、材料、数值） | 不查询社区 |
-| 剧情/故事/角色考据 | 不查询社区 |
+| 普通剧情梗概、任务事实 | 不查询社区 |
+| 名称词源、译名差异、文化原型 | 先查多语言文本 / Wiki；必要时补知乎回答或 r/Genshin_Lore |
 | 地图点位、宝箱 | 不查询社区（用官方互动地图） |
 | 配装、配队、词条取舍 | 小红书 + B站，必要时补知乎 |
 | 角色评价、值不值得抽 | 小红书 + B站，必要时补知乎 |
@@ -67,6 +88,7 @@ opencli bilibili subtitle "BV号" -f json
 
 ```markdown
 - [社区经验·小红书] <标题与 URL>（发布：YYYY-MM-DD；互动：...）
-- [社区经验·知乎] <标题与 URL>（发布：YYYY-MM-DD；赞同：...）
+- [社区分析·知乎回答] <问题 / 回答标题与完整回答 URL>（作者：...；发布：...；更新：...；赞同：...）
+- [社区分析·Reddit] <帖子标题与 URL>（作者：...；发布：...；分数：...）
 - [社区经验·B站] <标题与 URL>（UP：...；发布：YYYY-MM-DD；播放：...）
 ```

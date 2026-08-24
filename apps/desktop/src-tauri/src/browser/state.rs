@@ -1,13 +1,12 @@
-use std::sync::Mutex;
+use std::{collections::HashSet, sync::Mutex};
 
-use super::models::{BrowserBounds, BrowserTab};
+use super::models::BrowserTab;
 
 #[derive(Debug, Default)]
 struct BrowserStateInner {
     tabs: Vec<BrowserTab>,
     active_id: Option<String>,
-    bounds: Option<BrowserBounds>,
-    visible: bool,
+    temporary: HashSet<String>,
 }
 
 #[derive(Debug, Default)]
@@ -22,6 +21,32 @@ impl BrowserState {
         let mut state = self.0.lock().expect("browser state poisoned");
         state.active_id = Some(tab.id.clone());
         state.tabs.push(tab);
+    }
+
+    pub fn mark_temporary(&self, id: &str) {
+        self.0
+            .lock()
+            .expect("browser state poisoned")
+            .temporary
+            .insert(id.to_string());
+    }
+
+    pub fn temporary_ids(&self) -> Vec<String> {
+        self.0
+            .lock()
+            .expect("browser state poisoned")
+            .temporary
+            .iter()
+            .cloned()
+            .collect()
+    }
+
+    pub fn is_temporary(&self, id: &str) -> bool {
+        self.0
+            .lock()
+            .expect("browser state poisoned")
+            .temporary
+            .contains(id)
     }
 
     pub fn update(&self, id: &str, update: impl FnOnce(&mut BrowserTab)) -> Option<BrowserTab> {
@@ -39,6 +64,7 @@ impl BrowserState {
             .position(|tab| tab.id == id)
             .ok_or_else(|| "浏览器标签不存在".to_string())?;
         state.tabs.remove(index);
+        state.temporary.remove(id);
         if state.active_id.as_deref() == Some(id) {
             state.active_id = state
                 .tabs
@@ -66,25 +92,10 @@ impl BrowserState {
             .clone()
     }
 
-    pub fn set_bounds(&self, bounds: BrowserBounds) {
-        self.0.lock().expect("browser state poisoned").bounds = Some(bounds);
-    }
-
-    pub fn bounds(&self) -> Option<BrowserBounds> {
-        self.0.lock().expect("browser state poisoned").bounds
-    }
-
-    pub fn set_visible(&self, visible: bool) {
-        self.0.lock().expect("browser state poisoned").visible = visible;
-    }
-
-    pub fn is_visible(&self) -> bool {
-        self.0.lock().expect("browser state poisoned").visible
-    }
-
     pub fn clear(&self) -> Vec<BrowserTab> {
         let mut state = self.0.lock().expect("browser state poisoned");
         state.active_id = None;
+        state.temporary.clear();
         std::mem::take(&mut state.tabs)
     }
 }
@@ -117,18 +128,6 @@ mod tests {
     }
 
     #[test]
-    fn visibility_does_not_clear_tabs() {
-        let state = BrowserState::default();
-        state.insert(tab("first"));
-
-        state.set_visible(false);
-        state.set_visible(true);
-
-        assert_eq!(state.list().len(), 1);
-        assert!(state.is_visible());
-    }
-
-    #[test]
     fn clear_removes_tabs_and_active_selection() {
         let state = BrowserState::default();
         state.insert(tab("first"));
@@ -139,5 +138,17 @@ mod tests {
         assert_eq!(cleared.len(), 2);
         assert!(state.list().is_empty());
         assert_eq!(state.active_id(), None);
+    }
+
+    #[test]
+    fn temporary_marker_is_removed_with_the_tab() {
+        let state = BrowserState::default();
+        state.insert(tab("reader"));
+        state.mark_temporary("reader");
+        assert!(state.is_temporary("reader"));
+
+        state.remove("reader").unwrap();
+
+        assert!(!state.is_temporary("reader"));
     }
 }

@@ -1,7 +1,7 @@
 {
   "name": "paimon-skill",
   "version": "0.2.0",
-  "description": "Genshin Impact build, wiki, and current-information lookup skill with explicit source authority and freshness.",
+  "description": "Genshin Impact build, wiki, story, multilingual-name, and lore-reference lookup skill with explicit source authority.",
   "author": {
     "name": "KazeLiu",
     "url": "https://github.com/KazeLiu"
@@ -22,8 +22,8 @@
   "hooks": {},
   "interface": {
     "displayName": "Paimon Skill",
-    "shortDescription": "原神配装 / 图鉴按需查询",
-    "longDescription": "Look up Genshin Impact artifacts, weapons, builds, teams, mechanics, and current information from first-party OBC data, the community-maintained BWiki, and optional community sources, with citations and freshness metadata.",
+    "shortDescription": "原神配装 / 剧情 / 多语言考据",
+    "longDescription": "Look up Genshin Impact builds, mechanics, stories, multilingual names, etymology, and cultural references using OBC, BWiki, multilingual text databases, and answer-level community sources with explicit evidence tiers.",
     "developerName": "KazeLiu",
     "category": "Productivity",
     "capabilities": [
@@ -32,7 +32,7 @@
     ],
     "defaultPrompt": [
       "胡桃圣遗物和武器怎么配？",
-      "绝缘之旗印适合哪些角色？"
+      "水仙十字这个名字借鉴了什么？"
     ],
     "websiteURL": "https://github.com/KazeLiu/Paimon-Skill",
     "brandColor": "#6EC5FF"

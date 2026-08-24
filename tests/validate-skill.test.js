@@ -77,6 +77,33 @@ test('story research discovers and verifies evidence across wiki pages', () => {
   assert.match(story, /(?:明确事实|直接证据)[\s\S]{0,200}(?:推断|推测)/);
 });
 
+test('lore research supports multilingual names and cultural references', () => {
+  const story = read('skills', 'genshin-build-wiki', 'references', 'story-research.md');
+  const sources = read('skills', 'genshin-build-wiki', 'references', 'sources.md');
+
+  for (const name of ['Genshin Impact Wiki', 'Project Amber', 'Etymology', 'Other Languages']) {
+    assert.match(`${story}\n${sources}`, new RegExp(name, 'i'));
+  }
+  assert.match(story, /英语|英文/);
+  assert.match(story, /俄语|俄文/);
+  assert.match(story, /本地化[^。\n]*(?:原文|源文本)|(?:原文|源文本)[^。\n]*本地化/);
+  assert.match(story, /游戏文本[^。\n]*(?:词源|文化原型|历史对应)/);
+  assert.match(story, /(?:明确事实|直接证据)[\s\S]{0,300}(?:社区推测|玩家推测)/);
+});
+
+test('Zhihu research reads individual answers without write commands', () => {
+  const social = read('skills', 'genshin-build-wiki', 'references', 'social-platforms.md');
+
+  assert.match(social, /opencli\s+zhihu\s+search\s+["'][^"']+["'][^\n]*--type\s+answer/i);
+  assert.match(social, /opencli\s+zhihu\s+question\s+["']?QUESTION_ID["']?[^\n]*--limit/i);
+  assert.match(social, /opencli\s+zhihu\s+answer-detail\s+["']?ANSWER_ID["']?[^\n]*-f\s+json/i);
+  assert.doesNotMatch(social, /opencli\s+zhihu\s+answer\s/i);
+  for (const field of ['作者', '赞同', '发布时间', '更新时间', '完整回答']) {
+    assert.match(social, new RegExp(field));
+  }
+  assert.match(social, /问题页[^。\n]*(?:不能|不足|不可)[^。\n]*(?:代替|替代)[^。\n]*回答/);
+});
+
 test('all maintained references are discoverable from SKILL.md', () => {
   for (const file of [
     'sources.md',

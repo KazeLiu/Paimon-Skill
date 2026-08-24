@@ -76,13 +76,14 @@ test('OpenCLI without required subcommands does not enable community lookup', ()
 test('available community subcommands are returned as structured capabilities', () => {
   const result = runIsolated({
     withOpenCli: true,
-    communityCommands: ['xiaohongshu', 'zhihu', 'bilibili'],
+    communityCommands: ['xiaohongshu', 'zhihu', 'bilibili', 'reddit'],
   });
   assert.equal(result.status, 0, result.stderr || result.stdout);
   const report = JSON.parse(result.stdout);
   assert.equal(report.features.xiaohongshuLookup, true);
   assert.equal(report.features.zhihuLookup, true);
   assert.equal(report.features.bilibiliLookup, true);
+  assert.equal(report.features.redditLookup, true);
   assert.equal(report.features.communityLookup, true);
 });
 
@@ -96,6 +97,7 @@ test('one missing platform capability is reported without hiding available platf
   assert.equal(report.features.xiaohongshuLookup, true);
   assert.equal(report.features.zhihuLookup, true);
   assert.equal(report.features.bilibiliLookup, false);
+  assert.equal(report.features.redditLookup, false);
   assert.equal(report.features.communityLookup, true);
 });
 

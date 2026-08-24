@@ -7,7 +7,7 @@
   "plugins": [
     {
       "name": "paimon-skill",
-      "description": "Genshin Impact build and wiki lookup skills (BWiki + 原神观测枢)",
+      "description": "Genshin Impact build, story, multilingual-name, and lore-reference lookup skills",
       "version": "0.2.0",
       "source": "./",
       "author": {

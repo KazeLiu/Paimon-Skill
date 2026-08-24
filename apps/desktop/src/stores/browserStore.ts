@@ -12,10 +12,8 @@ import {
   reloadBrowserTab,
   scrollBrowserPage,
   selectBrowserTab,
-  setBrowserBounds,
-  setBrowserVisibility,
 } from "@/api/browser";
-import type { BrowserBounds, BrowserEvent, BrowserTab, PageSnapshot } from "@/types/browser";
+import type { BrowserEvent, BrowserTab, PageSnapshot } from "@/types/browser";
 
 const errorMessage = (error: unknown) => error instanceof Error ? error.message : String(error);
 
@@ -23,7 +21,6 @@ export const useBrowserStore = defineStore("browser", {
   state: () => ({
     tabs: [] as BrowserTab[],
     activeTabId: null as string | null,
-    visible: false,
     loadingAction: false,
     error: "",
     lastSnapshot: null as PageSnapshot | null,
@@ -42,14 +39,21 @@ export const useBrowserStore = defineStore("browser", {
     async bindEvents() {
       if (this.unlisten) return;
       this.unlisten = await listen<BrowserEvent>("browser-event", (event) => {
+        if (event.payload.kind === "closed") {
+          this.tabs = this.tabs.filter((tab) => tab.id !== event.payload.tab.id);
+          if (this.activeTabId === event.payload.tab.id) {
+            this.activeTabId = this.tabs[this.tabs.length - 1]?.id ?? null;
+          }
+          return;
+        }
         const index = this.tabs.findIndex((tab) => tab.id === event.payload.tab.id);
         if (index >= 0) this.tabs[index] = event.payload.tab;
       });
     },
-    async open(url: string, bounds?: BrowserBounds) {
+    async open(url: string) {
       this.error = "";
       try {
-        const tab = await openBrowserTab(url, bounds);
+        const tab = await openBrowserTab(url);
         this.tabs.push(tab);
         this.activeTabId = tab.id;
         return tab;
@@ -71,13 +75,6 @@ export const useBrowserStore = defineStore("browser", {
       await selectBrowserTab(id);
       this.activeTabId = id;
     },
-    async setVisible(visible: boolean) {
-      await setBrowserVisibility(visible);
-      this.visible = visible;
-    },
-    async setBounds(bounds: BrowserBounds) {
-      if (this.tabs.length > 0) await setBrowserBounds(bounds);
-    },
     async navigate(url: string) {
       if (!this.activeTabId) return;
       const tab = await navigateBrowserTab(this.activeTabId, url);
@@ -90,12 +87,13 @@ export const useBrowserStore = defineStore("browser", {
     async history(direction: "back" | "forward") {
       if (this.activeTabId) await browserHistory(this.activeTabId, direction);
     },
-    async extract() {
-      if (!this.activeTabId) return null;
+    async extract(id?: string) {
+      const tabId = id ?? this.activeTabId;
+      if (!tabId) return null;
       this.loadingAction = true;
       this.error = "";
       try {
-        this.lastSnapshot = await extractBrowserPage(this.activeTabId);
+        this.lastSnapshot = await extractBrowserPage(tabId);
         return this.lastSnapshot;
       } catch (error) {
         this.error = errorMessage(error);

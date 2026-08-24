@@ -1,1 +1,1 @@
-{}
+{"main-event-listener":{"identifier":"main-event-listener","description":"Allow the trusted main application webview to subscribe to Tauri events.","local":true,"webviews":["main"],"permissions":["core:event:allow-listen","core:event:allow-unlisten"]}}

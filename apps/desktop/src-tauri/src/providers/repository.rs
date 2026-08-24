@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use super::models::ProviderConfig;
-use super::openai_compatible::chat_completions_url;
+use super::responses::responses_url;
 
 pub struct ProviderRepository {
     path: PathBuf,
@@ -69,12 +69,9 @@ fn validate_provider(provider: &ProviderConfig) -> Result<(), String> {
     if provider.model.trim().is_empty() {
         return Err("模型 ID 不能为空".into());
     }
-    chat_completions_url(&provider.base_url)?;
+    responses_url(&provider.base_url)?;
     if provider.timeout_ms < 1_000 || provider.timeout_ms > 300_000 {
         return Err("请求超时必须在 1-300 秒之间".into());
-    }
-    if provider.max_tokens == 0 {
-        return Err("最大输出长度必须大于 0".into());
     }
     Ok(())
 }
@@ -91,8 +88,6 @@ mod tests {
             model: "deepseek-chat".into(),
             secret_ref: format!("provider:{id}"),
             timeout_ms: 30_000,
-            temperature: 0.3,
-            max_tokens: 2048,
             streaming: true,
             tool_calling: true,
             enabled: true,
@@ -133,5 +128,21 @@ mod tests {
 
         assert!(error.contains("名称") || error.contains("地址"));
         assert!(repository.list().unwrap().is_empty());
+    }
+
+    #[test]
+    fn ignores_removed_legacy_request_options() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("providers.json");
+        std::fs::write(
+            &path,
+            r#"[{"id":"legacy","name":"Legacy","baseUrl":"https://relay.example/v1","model":"model","secretRef":"provider:legacy","timeoutMs":30000,"temperature":0.3,"maxTokens":2048,"streaming":true,"toolCalling":true,"enabled":true}]"#,
+        )
+        .unwrap();
+
+        let provider = ProviderRepository::new(path).list().unwrap().remove(0);
+
+        assert_eq!(provider.model, "model");
+        assert_eq!(provider.base_url, "https://relay.example/v1");
     }
 }

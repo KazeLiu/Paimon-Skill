@@ -11,7 +11,32 @@ export interface Message {
   conversationId: string;
   role: string;
   content: string;
+  attachments?: ChatAttachment[];
+  status?: "streaming" | "error";
+  error?: string;
+  retryable?: boolean;
+  retryMessageId?: string;
+  retryContent?: string;
+  retryAttachments?: ChatAttachment[];
   createdAt: string;
+}
+
+export interface ChatAttachment {
+  name: string;
+  mimeType: string;
+  dataUrl: string;
+  size: number;
+  kind: "image" | "file";
+}
+
+export interface FailedRunState {
+  conversationId: string;
+  providerId: string;
+  userMessageId: string;
+  content: string;
+  attachments: ChatAttachment[];
+  partialContent: string;
+  error: string;
 }
 
 export interface SendMessageResult {
@@ -82,4 +107,6 @@ export interface ToolActivity {
   runId: string;
   toolName: string;
   status: string;
+  createdAt?: string;
+  details?: string;
 }

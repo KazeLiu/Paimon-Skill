@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "main-event-listener",
+  "description": "Allow the trusted main application webview to subscribe to Tauri events.",
+  "webviews": ["main"],
+  "permissions": ["core:event:allow-listen", "core:event:allow-unlisten"]
+}

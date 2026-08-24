@@ -4,6 +4,7 @@ use chrono::Utc;
 use rusqlite::{params, Connection};
 use uuid::Uuid;
 
+use crate::attachments::ChatAttachment;
 use crate::tools::registry::ToolResult;
 
 use super::models::{Conversation, Message, StoredSourceRecord, ToolRunRecord};
@@ -45,6 +46,7 @@ impl ChatRepository {
                     conversation_id TEXT NOT NULL,
                     role TEXT NOT NULL,
                     content TEXT NOT NULL,
+                    attachments_json TEXT NOT NULL DEFAULT '[]',
                     created_at TEXT NOT NULL,
                     FOREIGN KEY(conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
                  );
@@ -82,7 +84,29 @@ impl ChatRepository {
                  CREATE INDEX IF NOT EXISTS idx_sources_conversation_created
                     ON sources(conversation_id, created_at);",
             )
-            .map_err(|error| format!("无法初始化会话数据库：{error}"))
+            .map_err(|error| format!("无法初始化会话数据库：{error}"))?;
+        let has_attachments = {
+            let mut statement = connection
+                .prepare("PRAGMA table_info(messages)")
+                .map_err(|error| format!("无法检查消息表结构：{error}"))?;
+            let columns = statement
+                .query_map([], |row| row.get::<_, String>(1))
+                .map_err(|error| format!("无法读取消息表结构：{error}"))?;
+            columns
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|error| format!("无法解析消息表结构：{error}"))?
+                .iter()
+                .any(|column| column == "attachments_json")
+        };
+        if !has_attachments {
+            connection
+                .execute(
+                    "ALTER TABLE messages ADD COLUMN attachments_json TEXT NOT NULL DEFAULT '[]'",
+                    [],
+                )
+                .map_err(|error| format!("无法迁移消息附件字段：{error}"))?;
+        }
+        Ok(())
     }
 
     pub fn create_conversation(
@@ -138,11 +162,43 @@ impl ChatRepository {
             .map_err(|error| format!("无法解析对话列表：{error}"))
     }
 
+    pub fn update_conversation_provider(
+        &self,
+        conversation_id: &str,
+        provider_id: &str,
+    ) -> Result<Conversation, String> {
+        let connection = self.connection()?;
+        let now = Utc::now().to_rfc3339();
+        let updated = connection
+            .execute(
+                "UPDATE conversations SET provider_id = ?1, updated_at = ?2 WHERE id = ?3",
+                params![provider_id, now, conversation_id],
+            )
+            .map_err(|error| format!("无法更新对话模型：{error}"))?;
+        if updated == 0 {
+            return Err("对话不存在".into());
+        }
+        self.list_conversations()?
+            .into_iter()
+            .find(|conversation| conversation.id == conversation_id)
+            .ok_or_else(|| "无法读取更新后的对话".to_string())
+    }
+
     pub fn add_message(
         &self,
         conversation_id: &str,
         role: &str,
         content: &str,
+    ) -> Result<Message, String> {
+        self.add_message_with_attachments(conversation_id, role, content, &[])
+    }
+
+    pub fn add_message_with_attachments(
+        &self,
+        conversation_id: &str,
+        role: &str,
+        content: &str,
+        attachments: &[ChatAttachment],
     ) -> Result<Message, String> {
         let mut connection = self.connection()?;
         let transaction = connection
@@ -154,17 +210,21 @@ impl ChatRepository {
             conversation_id: conversation_id.to_owned(),
             role: role.to_owned(),
             content: content.to_owned(),
+            attachments: attachments.to_vec(),
             created_at: now.clone(),
         };
+        let attachments_json = serde_json::to_string(&message.attachments)
+            .map_err(|error| format!("无法序列化消息附件：{error}"))?;
         transaction
             .execute(
-                "INSERT INTO messages (id, conversation_id, role, content, created_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                "INSERT INTO messages (id, conversation_id, role, content, attachments_json, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
                 params![
                     message.id,
                     message.conversation_id,
                     message.role,
                     message.content,
+                    attachments_json,
                     message.created_at
                 ],
             )
@@ -185,23 +245,37 @@ impl ChatRepository {
         let connection = self.connection()?;
         let mut statement = connection
             .prepare(
-                "SELECT id, conversation_id, role, content, created_at
+                "SELECT id, conversation_id, role, content, attachments_json, created_at
                  FROM messages WHERE conversation_id = ?1 ORDER BY created_at ASC",
             )
             .map_err(|error| format!("无法读取消息：{error}"))?;
         let rows = statement
             .query_map([conversation_id], |row| {
-                Ok(Message {
-                    id: row.get(0)?,
-                    conversation_id: row.get(1)?,
-                    role: row.get(2)?,
-                    content: row.get(3)?,
-                    created_at: row.get(4)?,
-                })
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, String>(5)?,
+                ))
             })
             .map_err(|error| format!("无法查询消息：{error}"))?;
-        rows.collect::<Result<Vec<_>, _>>()
-            .map_err(|error| format!("无法解析消息：{error}"))
+        rows.map(|row| {
+            let (id, conversation_id, role, content, attachments_json, created_at) =
+                row.map_err(|error| format!("无法解析消息：{error}"))?;
+            let attachments = serde_json::from_str(&attachments_json)
+                .map_err(|error| format!("消息附件数据已损坏：{error}"))?;
+            Ok(Message {
+                id,
+                conversation_id,
+                role,
+                content,
+                attachments,
+                created_at,
+            })
+        })
+        .collect()
     }
 
     pub fn record_tool_run(&self, input: ToolRunInput<'_>) -> Result<ToolRunRecord, String> {
@@ -433,6 +507,35 @@ mod tests {
     }
 
     #[test]
+    fn persists_message_attachments_and_migrates_existing_databases() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("paimon.db");
+        {
+            let connection = Connection::open(&path).unwrap();
+            connection.execute_batch(
+                "CREATE TABLE conversations (id TEXT PRIMARY KEY, title TEXT NOT NULL, provider_id TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+                 CREATE TABLE messages (id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL, role TEXT NOT NULL, content TEXT NOT NULL, created_at TEXT NOT NULL);"
+            ).unwrap();
+        }
+        let repository = ChatRepository::new(&path);
+        repository.initialize().unwrap();
+        let conversation = repository.create_conversation("vision", "附件").unwrap();
+        let attachments = vec![crate::attachments::ChatAttachment::image(
+            "screen.png",
+            "image/png",
+            "data:image/png;base64,YQ==",
+            1,
+        )];
+
+        repository
+            .add_message_with_attachments(&conversation.id, "user", "看图", &attachments)
+            .unwrap();
+
+        let messages = repository.list_messages(&conversation.id).unwrap();
+        assert_eq!(messages[0].attachments, attachments);
+    }
+
+    #[test]
     fn renames_and_cascade_deletes_a_conversation() {
         let dir = tempfile::tempdir().unwrap();
         let repository = ChatRepository::new(dir.path().join("paimon.db"));
@@ -478,6 +581,7 @@ mod tests {
             content: "完整网页正文".into(),
             source: Some(source.clone()),
             links: vec![],
+            metadata: Default::default(),
         };
 
         repository
@@ -526,5 +630,25 @@ mod tests {
             .list_sources(&conversation.id)
             .unwrap()
             .is_empty());
+    }
+
+    #[test]
+    fn updates_the_provider_bound_to_an_existing_conversation() {
+        let dir = tempfile::tempdir().unwrap();
+        let repository = ChatRepository::new(dir.path().join("paimon.db"));
+        repository.initialize().unwrap();
+        let conversation = repository
+            .create_conversation("deepseek", "模型切换")
+            .unwrap();
+
+        let updated = repository
+            .update_conversation_provider(&conversation.id, "relay")
+            .unwrap();
+
+        assert_eq!(updated.provider_id, "relay");
+        assert_eq!(
+            repository.list_conversations().unwrap()[0].provider_id,
+            "relay"
+        );
     }
 }

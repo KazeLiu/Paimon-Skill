@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 
 use crate::{
+    agent::research::ResearchLedger,
     providers::models::{ChatMessage, ToolCall, ToolDefinition},
     tools::{models::SourceRecord, registry::ToolResult},
 };
@@ -74,7 +75,7 @@ pub async fn run_agent_loop<M, T, E, D>(
     model: &M,
     tools: &T,
     events: &E,
-    mut messages: Vec<ChatMessage>,
+    messages: Vec<ChatMessage>,
     definitions: Vec<ToolDefinition>,
     options: AgentLoopOptions,
     cancellation: CancellationToken,
@@ -86,9 +87,40 @@ where
     E: AgentEvents,
     D: Fn(String) + Send + Sync,
 {
-    let mut displayed_content = String::new();
+    run_agent_loop_with_research(
+        model,
+        tools,
+        events,
+        messages,
+        definitions,
+        options,
+        cancellation,
+        on_delta,
+        None,
+    )
+    .await
+}
+
+pub async fn run_agent_loop_with_research<M, T, E, D>(
+    model: &M,
+    tools: &T,
+    events: &E,
+    mut messages: Vec<ChatMessage>,
+    definitions: Vec<ToolDefinition>,
+    options: AgentLoopOptions,
+    cancellation: CancellationToken,
+    on_delta: D,
+    mut research: Option<&mut ResearchLedger>,
+) -> Result<AgentLoopResult, String>
+where
+    M: ModelBackend,
+    T: ToolBackend,
+    E: AgentEvents,
+    D: Fn(String) + Send + Sync,
+{
     let mut tool_runs = Vec::new();
     let mut completed_tool_rounds = 0usize;
+    let mut research_followups = 0usize;
 
     loop {
         if cancellation.is_cancelled() {
@@ -99,15 +131,24 @@ where
             _ = cancellation.cancelled() => return Err(AGENT_CANCELLED.into()),
             result = model.next_turn(&messages, &definitions, &on_delta, &cancellation) => result?,
         };
-        displayed_content.push_str(&turn.content);
-
         if turn.tool_calls.is_empty() {
-            if displayed_content.trim().is_empty() {
+            if let Some(ledger) = research.as_deref_mut() {
+                if let Some(instruction) = ledger.final_gate() {
+                    if research_followups >= 2 {
+                        return Err(format!("研究流程未完成：{instruction}"));
+                    }
+                    research_followups += 1;
+                    messages.push(ChatMessage::assistant(&turn.content));
+                    messages.push(ChatMessage::user(instruction));
+                    continue;
+                }
+            }
+            if turn.content.trim().is_empty() {
                 return Err("模型没有返回可显示的文本".into());
             }
             messages.push(ChatMessage::assistant(&turn.content));
             return Ok(AgentLoopResult {
-                content: displayed_content,
+                content: turn.content,
                 messages,
                 tool_runs,
             });
@@ -137,6 +178,9 @@ where
 
             match execution {
                 Ok(result) => {
+                    if let Some(ledger) = research.as_deref_mut() {
+                        ledger.observe(&result);
+                    }
                     if let Some(source) = &result.source {
                         events.source_added(source);
                     }
@@ -317,6 +361,7 @@ mod tests {
             content: "result".into(),
             source: None,
             links: vec![],
+            metadata: Default::default(),
         })
     }
 
@@ -386,6 +431,51 @@ mod tests {
             result.messages.last().unwrap(),
             &ChatMessage::assistant("该网页读取失败，我改用已有资料回答。")
         );
+    }
+
+    #[tokio::test]
+    async fn research_gate_requires_scroll_and_uses_only_the_final_answer() {
+        let model = FakeModel(Mutex::new(VecDeque::from([
+            turn("", vec![call("1", "browser_open_page")]),
+            turn("这是尚未完成的总结", vec![]),
+            turn("", vec![call("2", "browser_scroll_page")]),
+            turn("完成后的正式总结", vec![]),
+        ])));
+        let source = |tool_name: &str| ToolResult {
+            tool_name: tool_name.into(),
+            content: "页面内容".into(),
+            source: Some(SourceRecord {
+                title: "视频".into(),
+                url: "https://www.bilibili.com/video/BV1abc".into(),
+                source_level: "browser_webview".into(),
+                platform: "bilibili".into(),
+                captured_at: "now".into(),
+            }),
+            links: vec![],
+            metadata: Default::default(),
+        };
+        let tools = FakeTools(Mutex::new(VecDeque::from([
+            Ok(source("browser_open_page")),
+            Ok(source("browser_scroll_page")),
+        ])));
+        let mut research = ResearchLedger::new("视频信息");
+
+        let result = run_agent_loop_with_research(
+            &model,
+            &tools,
+            &RecordingEvents::default(),
+            vec![ChatMessage::user("视频信息")],
+            vec![],
+            AgentLoopOptions { max_tool_rounds: 4 },
+            CancellationToken::new(),
+            |_| {},
+            Some(&mut research),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(result.content, "完成后的正式总结");
+        assert_eq!(result.tool_runs.len(), 2);
     }
 
     #[tokio::test]

@@ -39,15 +39,9 @@ pub async fn eval_json<T: DeserializeOwned + Send + 'static>(
 }
 
 pub async fn extract_page(webview: &Webview, script: &str) -> Result<PageSnapshot, String> {
-    let snapshot: PageSnapshot = eval_json(webview, script).await?;
-    Ok(PageSnapshot::bounded(
-        snapshot.title,
-        snapshot.url,
-        snapshot.text,
-        snapshot.links,
-        snapshot.login_challenge,
-        snapshot.challenge_reason,
-    ))
+    let mut snapshot: PageSnapshot = eval_json(webview, script).await?;
+    snapshot.bound_in_place();
+    Ok(snapshot)
 }
 
 #[cfg(test)]

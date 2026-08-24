@@ -17,4 +17,11 @@ describe("renderMarkdown", () => {
     expect(html).not.toContain("javascript:");
     expect(html).not.toContain("file:");
   });
+
+  it("opens every rendered link in a new window", () => {
+    const html = renderMarkdown("[资料](https://example.com/page)");
+
+    expect(html).toContain('target="_blank"');
+    expect(html).toContain('rel="noopener noreferrer"');
+  });
 });

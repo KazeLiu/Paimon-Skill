@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 
-import type { Conversation, Message, SendMessageResult, StoredSourceRecord, ToolRunRecord } from "@/types/chat";
+import type { ChatAttachment, Conversation, Message, SendMessageResult, StoredSourceRecord, ToolRunRecord } from "@/types/chat";
 
 export const listConversations = () => invoke<Conversation[]>("list_conversations");
 export const listMessages = (conversationId: string) =>
@@ -17,5 +17,7 @@ export const sendMessage = (input: {
   conversationId: string | null;
   providerId: string;
   content: string;
+  attachments: ChatAttachment[];
+  retryMessageId?: string;
 }) => invoke<SendMessageResult>("send_message", { input });
 export const cancelRun = (runId: string) => invoke<boolean>("cancel_run", { runId });

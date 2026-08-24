@@ -5,7 +5,6 @@ const api = vi.hoisted(() => ({
   listBrowserTabs: vi.fn(),
   openBrowserTab: vi.fn(),
   selectBrowserTab: vi.fn(),
-  setBrowserVisibility: vi.fn(),
   clickBrowserTarget: vi.fn(),
 }));
 
@@ -20,7 +19,7 @@ describe("browserStore", () => {
     api.listBrowserTabs.mockResolvedValue([]);
   });
 
-  it("keeps existing tabs when the browser surface is hidden and shown again", async () => {
+  it("keeps an opened website tab active for later extraction", async () => {
     const tab = {
       id: "tab-1",
       title: "Example",
@@ -32,13 +31,9 @@ describe("browserStore", () => {
     const store = useBrowserStore();
 
     await store.open("https://example.com");
-    await store.setVisible(false);
-    await store.setVisible(true);
 
     expect(store.tabs).toEqual([tab]);
     expect(store.activeTabId).toBe("tab-1");
-    expect(api.setBrowserVisibility).toHaveBeenNthCalledWith(1, false);
-    expect(api.setBrowserVisibility).toHaveBeenNthCalledWith(2, true);
   });
 
   it("keeps a read-only click failure visible in the browser toolbar", async () => {

@@ -2,16 +2,19 @@ use std::{fs, time::Duration};
 
 use serde::{Deserialize, Serialize};
 use tauri::{
-    webview::{NewWindowResponse, PageLoadEvent, WebviewBuilder},
-    AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, State, WebviewUrl,
+    webview::{NewWindowResponse, PageLoadEvent, WebviewWindowBuilder},
+    AppHandle, Emitter, Manager, State, WebviewUrl, WindowEvent,
 };
 use tokio::time::sleep;
 use uuid::Uuid;
 
 use super::{
-    models::{BrowserBounds, BrowserEvent, BrowserTab, PageSnapshot, ScrollSample, ScrollTracker},
+    models::{BrowserEvent, BrowserTab, PageSnapshot, ScrollSample, ScrollTracker},
     policy::{normalize_browser_url, validate_click_target},
-    scripts::{click_visible_target_script, EXTRACT_VISIBLE_PAGE_SCRIPT, SCROLL_SAMPLE_SCRIPT},
+    scripts::{
+        click_element_script, click_visible_target_script, semantic_scan_script,
+        SCROLL_SAMPLE_SCRIPT,
+    },
     state::BrowserState,
     task::{eval_json, extract_page},
 };
@@ -27,13 +30,15 @@ struct BrowserCommentPage {
     challenge_reason: Option<String>,
 }
 
-const DEFAULT_PROFILE_ID: &str = "default";
-const CHILD_NAVIGATION_SCRIPT: &str = r#"
+pub(super) const DEFAULT_PROFILE_ID: &str = "default";
+pub(crate) const CHILD_NAVIGATION_SCRIPT: &str = r#"
 (() => {
-  document.addEventListener('click', (event) => {
-    const anchor = event.target?.closest?.('a[target="_blank"]');
-    if (anchor) anchor.target = '_self';
-  }, true);
+  const mark = () => document.querySelectorAll('a[href]').forEach((anchor) => {
+    anchor.target = '_blank';
+    anchor.rel = 'noopener noreferrer';
+  });
+  mark();
+  new MutationObserver(mark).observe(document.documentElement, { childList: true, subtree: true });
 })()
 "#;
 
@@ -41,7 +46,26 @@ const CHILD_NAVIGATION_SCRIPT: &str = r#"
 #[serde(rename_all = "camelCase")]
 pub struct OpenBrowserTabInput {
     pub url: String,
-    pub bounds: Option<BrowserBounds>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BrowserWindowPresentation {
+    Foreground,
+    Background,
+}
+
+impl BrowserWindowPresentation {
+    fn visible(self) -> bool {
+        matches!(self, Self::Foreground)
+    }
+
+    fn focused(self) -> bool {
+        matches!(self, Self::Foreground)
+    }
+
+    fn allows_child_windows(self) -> bool {
+        matches!(self, Self::Foreground)
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -58,13 +82,63 @@ pub struct BrowserProfileView {
     persistent: bool,
 }
 
-fn default_bounds() -> BrowserBounds {
-    BrowserBounds {
-        x: 240.0,
-        y: 132.0,
-        width: 900.0,
-        height: 680.0,
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SourceConnectionResult {
+    reachable: bool,
+    status_code: Option<u16>,
+    message: String,
+}
+
+fn source_status_is_reachable(_status: reqwest::StatusCode) -> bool {
+    true
+}
+
+#[tauri::command]
+pub async fn check_source_connection(url: String) -> Result<SourceConnectionResult, String> {
+    let url = super::policy::validate_source_connection_url(&url)?;
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(8))
+        .user_agent("Paimon Desktop source checker/0.1")
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .map_err(|error| format!("无法创建连接检测器：{error}"))?;
+    let response = client
+        .get(url.clone())
+        .header(reqwest::header::RANGE, "bytes=0-0")
+        .send()
+        .await;
+    match response {
+        Ok(response) => {
+            let status = response.status();
+            Ok(SourceConnectionResult {
+                reachable: source_status_is_reachable(status),
+                status_code: Some(status.as_u16()),
+                message: format!("HTTP {}", status.as_u16()),
+            })
+        }
+        Err(error) => Ok(SourceConnectionResult {
+            reachable: false,
+            status_code: None,
+            message: format!("连接失败：{error}"),
+        }),
     }
+}
+
+#[tauri::command]
+pub async fn check_source_login(
+    app: AppHandle,
+    source_id: String,
+) -> Result<super::login::SourceLoginResult, String> {
+    super::login::check_source_login(&app, &source_id).await
+}
+
+fn browser_window_title(title: &str, url: &str) -> String {
+    let title = title.trim();
+    if title.is_empty() {
+        return url.to_string();
+    }
+    format!("{title} · {url}")
 }
 
 fn validate_profile_id(profile_id: &str) -> Result<(), String> {
@@ -93,15 +167,19 @@ fn profile_path(app: &AppHandle, profile_id: &str) -> Result<std::path::PathBuf,
     Ok(directory)
 }
 
-fn profile_directory(app: &AppHandle, profile_id: &str) -> Result<std::path::PathBuf, String> {
+pub(super) fn profile_directory(
+    app: &AppHandle,
+    profile_id: &str,
+) -> Result<std::path::PathBuf, String> {
     let directory = profile_path(app, profile_id)?;
     fs::create_dir_all(&directory).map_err(|error| format!("无法创建浏览器 Profile：{error}"))?;
     Ok(directory)
 }
 
 fn webview(app: &AppHandle, id: &str) -> Result<tauri::Webview, String> {
-    app.get_webview(id)
-        .ok_or_else(|| "浏览器标签对应的 WebView 不存在".to_string())
+    app.get_webview_window(id)
+        .map(|window| window.as_ref().clone())
+        .ok_or_else(|| "浏览器标签对应的窗口不存在".to_string())
 }
 
 fn emit_tab(app: &AppHandle, kind: &str, tab: BrowserTab) {
@@ -114,17 +192,12 @@ fn emit_tab(app: &AppHandle, kind: &str, tab: BrowserTab) {
     );
 }
 
-fn hide_tabs(app: &AppHandle, state: &BrowserState, except: Option<&str>) -> Result<(), String> {
-    for tab in state.list() {
-        if Some(tab.id.as_str()) != except {
-            if let Some(webview) = app.get_webview(&tab.id) {
-                webview
-                    .hide()
-                    .map_err(|error| format!("无法隐藏浏览器标签：{error}"))?;
-            }
-        }
+fn remove_tab_and_emit(app: &AppHandle, id: &str) {
+    let state = app.state::<BrowserState>();
+    if let Some(tab) = state.update(id, |_| {}) {
+        let _ = state.remove(id);
+        emit_tab(app, "closed", tab);
     }
-    Ok(())
 }
 
 #[tauri::command]
@@ -146,14 +219,26 @@ pub async fn open_browser_tab_inner(
     state: &BrowserState,
     input: OpenBrowserTabInput,
 ) -> Result<BrowserTab, String> {
+    open_browser_tab_with_presentation(app, state, input, BrowserWindowPresentation::Foreground)
+        .await
+}
+
+pub async fn open_background_browser_tab_inner(
+    app: AppHandle,
+    state: &BrowserState,
+    input: OpenBrowserTabInput,
+) -> Result<BrowserTab, String> {
+    open_browser_tab_with_presentation(app, state, input, BrowserWindowPresentation::Background)
+        .await
+}
+
+async fn open_browser_tab_with_presentation(
+    app: AppHandle,
+    state: &BrowserState,
+    input: OpenBrowserTabInput,
+    presentation: BrowserWindowPresentation,
+) -> Result<BrowserTab, String> {
     let url = normalize_browser_url(&input.url)?;
-    let bounds = input
-        .bounds
-        .or_else(|| state.bounds())
-        .unwrap_or_else(default_bounds);
-    bounds.validate()?;
-    state.set_bounds(bounds);
-    state.set_visible(true);
 
     let id = format!("browser-{}", Uuid::new_v4().simple());
     let title = url.host_str().unwrap_or("网页").to_string();
@@ -165,28 +250,38 @@ pub async fn open_browser_tab_inner(
         profile_id: DEFAULT_PROFILE_ID.into(),
     };
     let profile = profile_directory(&app, DEFAULT_PROFILE_ID)?;
-    let main_window = app
-        .get_window("main")
-        .ok_or_else(|| "找不到主窗口".to_string())?;
-    hide_tabs(&app, &state, None)?;
     state.insert(tab.clone());
 
     let load_app = app.clone();
     let load_id = id.clone();
     let title_app = app.clone();
     let title_id = id.clone();
-    let builder = WebviewBuilder::new(&id, WebviewUrl::External(url))
+    let builder = WebviewWindowBuilder::new(&app, &id, WebviewUrl::External(url))
+        .title(browser_window_title(&tab.title, &tab.url))
+        .inner_size(1120.0, 760.0)
+        .min_inner_size(720.0, 480.0)
+        .center()
+        .visible(presentation.visible())
+        .focused(presentation.focused())
         .data_directory(profile)
+        .devtools(true)
         .initialization_script(CHILD_NAVIGATION_SCRIPT)
         .on_navigation(|url| matches!(url.scheme(), "http" | "https"))
-        .on_new_window(|_, _| NewWindowResponse::Deny)
+        .on_new_window(move |_, _| {
+            if presentation.allows_child_windows() {
+                NewWindowResponse::Allow
+            } else {
+                NewWindowResponse::Deny
+            }
+        })
         .on_download(|_, _| false)
-        .on_page_load(move |_, payload| {
+        .on_page_load(move |window, payload| {
             let loading = matches!(payload.event(), PageLoadEvent::Started);
             if let Some(tab) = load_app.state::<BrowserState>().update(&load_id, |tab| {
                 tab.url = payload.url().as_str().to_string();
                 tab.loading = loading;
             }) {
+                let _ = window.set_title(&browser_window_title(&tab.title, &tab.url));
                 emit_tab(
                     &load_app,
                     if loading {
@@ -198,52 +293,50 @@ pub async fn open_browser_tab_inner(
                 );
             }
         })
-        .on_document_title_changed(move |_, title| {
+        .on_document_title_changed(move |window, title| {
             if let Some(tab) = title_app
                 .state::<BrowserState>()
                 .update(&title_id, |tab| tab.title = title)
             {
+                let _ = window.set_title(&browser_window_title(&tab.title, &tab.url));
                 emit_tab(&title_app, "title_changed", tab);
             }
         });
+    let builder = if let Some(main_window) = app.get_webview_window("main") {
+        builder
+            .parent(&main_window)
+            .map_err(|error| format!("无法关联浏览器子窗口：{error}"))?
+    } else {
+        builder
+    };
 
-    let created = main_window.add_child(
-        builder,
-        LogicalPosition::new(bounds.x, bounds.y),
-        LogicalSize::new(bounds.width, bounds.height),
-    );
-    let webview = match created {
-        Ok(webview) => webview,
+    let window = match builder.build() {
+        Ok(window) => window,
         Err(error) => {
-            if let Ok(Some(next_id)) = state.remove(&id) {
-                if let Some(previous) = app.get_webview(&next_id) {
-                    let _ = previous.show();
-                }
-            }
+            let _ = state.remove(&id);
             return Err(format!("无法创建浏览器标签：{error}"));
         }
     };
-    let _ = webview.set_focus();
+    let close_app = app.clone();
+    let close_id = id.clone();
+    window.on_window_event(move |event| {
+        if matches!(event, WindowEvent::Destroyed) {
+            remove_tab_and_emit(&close_app, &close_id);
+        }
+    });
+    if presentation.focused() {
+        let _ = window.set_focus();
+    }
     Ok(state.update(&id, |_| {}).unwrap_or(tab))
 }
 
 #[tauri::command]
-pub fn close_browser_tab(
-    app: AppHandle,
-    state: State<'_, BrowserState>,
-    id: String,
-) -> Result<(), String> {
-    webview(&app, &id)?
+pub fn close_browser_tab(app: AppHandle, id: String) -> Result<(), String> {
+    app.get_webview_window(&id)
+        .ok_or_else(|| "浏览器标签对应的窗口不存在".to_string())?
         .close()
         .map_err(|error| format!("无法关闭浏览器标签：{error}"))?;
-    let next = state.remove(&id)?;
-    if state.is_visible() {
-        if let Some(next) = next {
-            webview(&app, &next)?
-                .show()
-                .map_err(|error| format!("无法显示浏览器标签：{error}"))?;
-        }
-    }
+    remove_tab_and_emit(&app, &id);
     Ok(())
 }
 
@@ -254,54 +347,14 @@ pub fn select_browser_tab(
     id: String,
 ) -> Result<(), String> {
     state.select(&id)?;
-    hide_tabs(&app, &state, Some(&id))?;
-    if state.is_visible() {
-        let webview = webview(&app, &id)?;
-        webview
-            .show()
-            .map_err(|error| format!("无法显示浏览器标签：{error}"))?;
-        webview
-            .set_focus()
-            .map_err(|error| format!("无法聚焦浏览器标签：{error}"))?;
-    }
-    Ok(())
-}
-
-#[tauri::command]
-pub fn set_browser_visibility(
-    app: AppHandle,
-    state: State<'_, BrowserState>,
-    visible: bool,
-) -> Result<(), String> {
-    state.set_visible(visible);
-    let active_id = visible.then(|| state.active_id()).flatten();
-    hide_tabs(&app, &state, active_id.as_deref())?;
-    if visible {
-        if let Some(id) = state.active_id() {
-            webview(&app, &id)?
-                .show()
-                .map_err(|error| format!("无法显示浏览器标签：{error}"))?;
-        }
-    }
-    Ok(())
-}
-
-#[tauri::command]
-pub fn set_browser_bounds(
-    app: AppHandle,
-    state: State<'_, BrowserState>,
-    bounds: BrowserBounds,
-) -> Result<(), String> {
-    bounds.validate()?;
-    state.set_bounds(bounds);
-    for tab in state.list() {
-        if let Some(webview) = app.get_webview(&tab.id) {
-            webview
-                .set_position(LogicalPosition::new(bounds.x, bounds.y))
-                .and_then(|_| webview.set_size(LogicalSize::new(bounds.width, bounds.height)))
-                .map_err(|error| format!("无法调整浏览器区域：{error}"))?;
-        }
-    }
+    let window = app
+        .get_webview_window(&id)
+        .ok_or_else(|| "浏览器标签对应的窗口不存在".to_string())?;
+    window
+        .show()
+        .and_then(|_| window.unminimize())
+        .and_then(|_| window.set_focus())
+        .map_err(|error| format!("无法聚焦浏览器窗口：{error}"))?;
     Ok(())
 }
 
@@ -357,8 +410,67 @@ pub async fn extract_browser_page(app: AppHandle, id: String) -> Result<PageSnap
     extract_browser_page_inner(&app, &id).await
 }
 
+#[tauri::command]
+pub async fn find_browser_context(
+    app: AppHandle,
+    id: String,
+    query: String,
+) -> Result<serde_json::Value, String> {
+    find_browser_context_inner(&app, &id, &query).await
+}
+
+#[tauri::command]
+pub async fn click_browser_element(
+    app: AppHandle,
+    id: String,
+    element_id: String,
+) -> Result<PageSnapshot, String> {
+    click_browser_element_inner(&app, &id, &element_id).await
+}
+
 pub async fn extract_browser_page_inner(app: &AppHandle, id: &str) -> Result<PageSnapshot, String> {
-    extract_page(&webview(app, id)?, EXTRACT_VISIBLE_PAGE_SCRIPT).await
+    extract_page(&webview(app, id)?, &semantic_scan_script()).await
+}
+
+pub async fn extract_bilibili_subtitles_inner(
+    app: &AppHandle,
+    id: &str,
+    all_parts: bool,
+) -> Result<serde_json::Value, String> {
+    if !app
+        .state::<BrowserState>()
+        .list()
+        .iter()
+        .any(|tab| tab.id == id)
+    {
+        return Err("浏览器标签不存在".into());
+    }
+    eval_json(
+        &webview(app, id)?,
+        &super::scripts::extract_bilibili_subtitles_script(all_parts),
+    )
+    .await
+}
+
+pub async fn extract_bilibili_keyframes_inner(
+    app: &AppHandle,
+    id: &str,
+    timestamps_ms: Vec<u64>,
+) -> Result<serde_json::Value, String> {
+    if !app
+        .state::<BrowserState>()
+        .list()
+        .iter()
+        .any(|tab| tab.id == id)
+    {
+        return Err("浏览器标签不存在".into());
+    }
+    let timestamps = timestamps_ms.into_iter().take(6).collect::<Vec<_>>();
+    eval_json(
+        &webview(app, id)?,
+        &super::scripts::extract_bilibili_keyframes_script(&timestamps)?,
+    )
+    .await
 }
 
 pub async fn extract_browser_comments_inner(
@@ -397,6 +509,10 @@ pub async fn extract_browser_comments_inner(
                 captured_at: chrono::Utc::now().to_rfc3339(),
             }),
             links: vec![],
+            metadata: std::collections::BTreeMap::from([(
+                "tabId".into(),
+                serde_json::Value::String(id.to_string()),
+            )]),
         });
     }
     let mut extraction = crate::tools::comments::extract_comments(&page.url, &page.html, limits)?;
@@ -430,6 +546,10 @@ pub async fn extract_browser_comments_inner(
         content,
         source: Some(extraction.source),
         links: vec![],
+        metadata: std::collections::BTreeMap::from([(
+            "tabId".into(),
+            serde_json::Value::String(id.to_string()),
+        )]),
     })
 }
 
@@ -457,7 +577,7 @@ pub async fn scroll_browser_page_inner(
             break;
         }
     }
-    extract_page(&webview, EXTRACT_VISIBLE_PAGE_SCRIPT).await
+    extract_page(&webview, &semantic_scan_script()).await
 }
 
 #[tauri::command]
@@ -481,7 +601,30 @@ pub async fn click_browser_target_inner(
         return Err(result.error.unwrap_or_else(|| "网页未执行点击".into()));
     }
     sleep(Duration::from_millis(900)).await;
-    extract_page(&webview, EXTRACT_VISIBLE_PAGE_SCRIPT).await
+    extract_page(&webview, &semantic_scan_script()).await
+}
+
+pub async fn find_browser_context_inner(
+    app: &AppHandle,
+    id: &str,
+    query: &str,
+) -> Result<serde_json::Value, String> {
+    let webview = webview(app, id)?;
+    eval_json(&webview, super::scripts::find_page_context_script(query)?).await
+}
+
+pub async fn click_browser_element_inner(
+    app: &AppHandle,
+    id: &str,
+    element_id: &str,
+) -> Result<PageSnapshot, String> {
+    let webview = webview(app, id)?;
+    let result: ClickResult = eval_json(&webview, click_element_script(element_id)?).await?;
+    if !result.clicked {
+        return Err(result.error.unwrap_or_else(|| "网页未执行点击".into()));
+    }
+    sleep(Duration::from_millis(700)).await;
+    extract_page(&webview, &semantic_scan_script()).await
 }
 
 #[tauri::command]
@@ -494,10 +637,10 @@ pub fn browser_profile_status() -> BrowserProfileView {
 
 #[tauri::command]
 pub fn clear_browser_profile(app: AppHandle, state: State<'_, BrowserState>) -> Result<(), String> {
-    state.set_visible(false);
+    super::login::close_cookie_probe(&app);
     for tab in state.list() {
-        if let Some(webview) = app.get_webview(&tab.id) {
-            webview
+        if let Some(window) = app.get_webview_window(&tab.id) {
+            window
                 .close()
                 .map_err(|error| format!("无法关闭浏览器标签：{error}"))?;
         }
@@ -523,12 +666,42 @@ pub fn clear_browser_profile(app: AppHandle, state: State<'_, BrowserState>) -> 
 
 #[cfg(test)]
 mod tests {
-    use super::validate_profile_id;
+    use super::{
+        browser_window_title, source_status_is_reachable, validate_profile_id,
+        BrowserWindowPresentation,
+    };
+
+    #[test]
+    fn agent_browser_windows_are_hidden_and_do_not_take_focus() {
+        assert!(!BrowserWindowPresentation::Background.visible());
+        assert!(!BrowserWindowPresentation::Background.focused());
+        assert!(!BrowserWindowPresentation::Background.allows_child_windows());
+        assert!(BrowserWindowPresentation::Foreground.visible());
+        assert!(BrowserWindowPresentation::Foreground.focused());
+        assert!(BrowserWindowPresentation::Foreground.allows_child_windows());
+    }
 
     #[test]
     fn profile_id_rejects_path_traversal() {
         assert!(validate_profile_id("../other").is_err());
         assert!(validate_profile_id("nested/profile").is_err());
         assert!(validate_profile_id("default").is_ok());
+    }
+
+    #[test]
+    fn browser_window_title_contains_the_page_title_and_url() {
+        assert_eq!(
+            browser_window_title("米游社观测枢", "https://baike.mihoyo.com/ys/obc/"),
+            "米游社观测枢 · https://baike.mihoyo.com/ys/obc/"
+        );
+    }
+
+    #[test]
+    fn any_http_response_proves_the_source_is_reachable() {
+        assert!(source_status_is_reachable(reqwest::StatusCode::OK));
+        assert!(source_status_is_reachable(reqwest::StatusCode::FORBIDDEN));
+        assert!(source_status_is_reachable(
+            reqwest::StatusCode::SERVICE_UNAVAILABLE
+        ));
     }
 }

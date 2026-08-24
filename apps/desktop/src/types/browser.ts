@@ -1,10 +1,3 @@
-export interface BrowserBounds {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
-
 export interface BrowserTab {
   id: string;
   title: string;
@@ -14,7 +7,7 @@ export interface BrowserTab {
 }
 
 export interface BrowserEvent {
-  kind: "load_started" | "load_finished" | "title_changed";
+  kind: "load_started" | "load_finished" | "title_changed" | "closed";
   tab: BrowserTab;
 }
 
@@ -31,4 +24,33 @@ export interface PageSnapshot {
   loginChallenge: boolean;
   challengeReason: string | null;
   truncated: boolean;
+  structure?: Record<string, unknown> | null;
+  snapshotGeneration?: number | null;
+  pageFingerprint?: Record<string, unknown> | null;
+  interactiveTotal?: number;
+  shadowRootCount?: number;
+}
+
+export interface PageContextMatch {
+  index: number;
+  score: number;
+  matchedIn: string[];
+  match: Record<string, unknown>;
+  relation: {
+    type: "context";
+    text: string;
+    ancestors: Record<string, unknown>[];
+  };
+}
+
+export interface PageContextSearchResult {
+  url: string;
+  title: string;
+  query: string;
+  matchCount: number;
+  returnedMatches: number;
+  matches: PageContextMatch[];
+  truncated?: boolean;
+  snapshotGeneration?: number;
+  pageFingerprint?: Record<string, unknown>;
 }

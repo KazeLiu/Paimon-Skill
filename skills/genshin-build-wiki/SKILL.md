@@ -3,7 +3,8 @@ name: genshin-build-wiki
 description: >-
   Use when the user asks for Genshin Impact or 原神 character builds, artifacts,
   weapons, teams, mechanics, current banners, events, Spiral Abyss, character
-  stories, lore, story quests, or other game wiki and strategy information.
+  stories, lore, story quests, name etymology, localization differences,
+  cultural references, or other game wiki and strategy information.
   Do not use for repository, plugin, prompt,
   or skill development discussions that merely mention Genshin or Paimon.
 ---
@@ -35,15 +36,17 @@ description: >-
 | 第一方资料 | 米游社原神观测枢（OBC） | 基础档案、材料、数值、官方说明 | 标为“第一方资料”，不臆造官方配装推荐 |
 | 社区维护 Wiki | B站原神 WIKI（BWiki） | 图鉴、机制、角色攻略、筛选工具 | 标为“社区维护 Wiki/攻略” |
 | 玩家经验 | 小红书、知乎、B站视频 | 实战手感、平替方案、深渊案例 | 标为“社区经验”，不能替代事实来源 |
+| 多语言考据资料 | 英文/俄文 Genshin Impact Wiki、Project Amber | 名称词源、本地化对照、文化原型 | 标明语言与第三方性质，不称为官方原文 |
 
-默认事实来源仍是 BWiki + OBC，用户未授权其他攻略站时不扩展。**社区查询默认主动进行**：配装、配队、词条/命座/精炼取舍、角色评价、抽取建议、实战手感、深渊实战、视频攻略、解谜/机关解法等「攻略/评价类」问题，不必等用户点名「大家怎么配」，就主动补一轮小红书 + B站（必要时知乎）。**三类不查社区**：①硬事实（套装/武器特效、材料、基础数值、机制定义）；②剧情/故事/考据；③地图点位/宝箱——均以 OBC/BWiki 为准。社区查询依赖 OpenCLI + 浏览器扩展 + 登录，不可用时如实降级并说明「本次未覆盖社区经验」，不用记忆编造。
+默认事实来源仍是 BWiki + OBC，用户未授权其他攻略站时不扩展。**社区查询默认主动进行**：配装、配队、词条/命座/精炼取舍、角色评价、抽取建议、实战手感、深渊实战、视频攻略、解谜/机关解法等「攻略/评价类」问题，不必等用户点名「大家怎么配」，就主动补一轮小红书 + B站（必要时知乎）。硬事实、普通剧情梗概与地图点位不依赖社区；名称词源、翻译差异、隐喻与文化原型考据可主动补英文/俄文 Wiki、Project Amber，并按需读取知乎具体回答或 r/Genshin_Lore。社区内容只作观点或线索，不替代游戏文本。OpenCLI + 浏览器扩展不可用时如实降级，不用记忆编造。
 
 ## 意图路由
 
 | 意图 | 最小查询集合 | 社区查询 |
 |------|--------------|----------|
 | 稳定事实：套装效果、武器特效、材料、基础数值 | OBC 或 BWiki 的 1–2 个对应条目；重要数值可双源核对 | 不查社区 |
-| 剧情/故事/角色考据 | BWiki 剧情/任务页，必要时 OBC | 不查社区 |
+| 剧情故事、任务事实 | BWiki 剧情/任务页，必要时 OBC | 不查社区 |
+| 名称词源、译名差异、文化原型 | BWiki 上下文 + 多语言 Wiki / Project Amber 对照 | 必要时补知乎具体回答或 r/Genshin_Lore，只作考据线索 |
 | 配装、武器排序、配队、词条优先级 | BWiki 角色攻略 + OBC 基础信息；缺字段时补套装/武器页 | **默认查**（小红书 + B站，取舍/评价尤其查） |
 | 角色评价、抽取建议 | BWiki 角色页 + 基础数值 | **默认查**（评价、值不值得抽以社区经验为主） |
 | 机制解释 | BWiki 机制页，必要时用 OBC 核对名词与数值 | 定义性内容不查；实战收益争议时查 |
@@ -57,8 +60,8 @@ description: >-
 
 ## 执行流程
 
-1. **解析问题**：识别对象、玩法场景、版本、命座/精炼、预算，并判定属于「攻略/评价类」（默认查社区）还是「硬事实/剧情/地图点位类」（不查社区）。
-2. **列查询集合**：常规窄深问题（配装、单点事实）通常 1–4 个百科/攻略页面，攻略/评价类默认把小红书 + B站搜索一并列入；**大跨度剧情/考据类不受 4 页限制**，按下方「大跨度剧情 / 考据检索」织网。硬事实/剧情/点位类不查社区。
+1. **解析问题**：识别对象、玩法场景、版本、命座/精炼、预算，并判定属于攻略评价、硬事实、普通剧情、语言文化考据或地图点位。
+2. **列查询集合**：常规窄深问题通常 1–4 个百科/攻略页面；攻略/评价类默认加入小红书 + B站，语言文化考据加入多语言资料并按需加入知乎 / Reddit；**大跨度剧情/考据类不受 4 页限制**，按下方策略织网。
 3. **并行拉取独立来源**：优先结构化 API 或具体条目，禁止整站抓取。
 4. **抽取并分级**：区分图鉴事实、社区攻略观点、单个玩家体验。
 5. **核对时效与冲突**：记录查询时间、来源时间和适用版本；冲突时并列呈现。
@@ -66,7 +69,7 @@ description: >-
 
 ## 大跨度剧情 / 考据检索
 
-跨多个大版本的剧情、传说任务链、世界观或角色考据，官方往往有十几个乃至更多相关页面。这类问题**允许大量取页**，并**沿页面内链接不断发现新页面，织成一张主题网**，不受常规 4 页上限约束。**人物故事 / 角色故事 / 剧情考据**类问题走本策略；具体的 BWiki 全文搜索、分页翻页、页面类型与证据分级方法见 [references/story-research.md](references/story-research.md)。
+跨多个大版本的剧情、传说任务链、世界观或角色考据，官方往往有十几个乃至更多相关页面。这类问题**允许大量取页**，并**沿页面内链接不断发现新页面，织成一张主题网**，不受常规 4 页上限约束。**人物故事 / 角色故事 / 剧情考据 / 名称词源与文化原型**类问题走本策略；具体的 BWiki 全文搜索、跨语言对照、知乎/Reddit 考据线索与证据分级方法见 [references/story-research.md](references/story-research.md)。
 
 1. **先建索引（广度）**：用 `opensearch`、版本专题页、任务/角色分类页，先拉出章节·版本时间线清单（标题 + URL），此步不读正文。
 2. **沿内链织网（滚雪球）**：把读到页面里与主题**强相关**的内链（前置/后续任务、相关角色、关键地点与事件）加入待访问清单，逐层扩展至主题闭环，十几、几十页都可以。
@@ -76,13 +79,13 @@ description: >-
 
 ## OpenCLI 依赖检测
 
-只有在需要小红书、知乎或 B站社区内容时才检测 OpenCLI。使用相对于本 `SKILL.md` 所在目录的脚本路径：
+只有在需要小红书、知乎、B站或 Reddit 社区内容时才检测 OpenCLI。多语言 Wiki 与 Project Amber 的公开页面/API不依赖 OpenCLI。使用相对于本 `SKILL.md` 所在目录的脚本路径：
 
 ```bash
 node <skill-dir>/check-dependencies.js --json
 ```
 
-检测脚本只读取环境，不安装软件、不写状态文件，并分别探测 `xiaohongshu/zhihu/bilibili` 子命令。**注意脚本只验证 CLI 侧**；OpenCLI 还需要 Chrome 浏览器扩展（Browser Bridge）复用登录态才能真正查询，扩展未装或未登录时命令可用但查询仍会失败。执行具体平台查询前检查对应的 `features.*Lookup`。若 OpenCLI 缺失或所需平台能力为 `false`：
+检测脚本只读取环境，不安装软件、不写状态文件，并分别探测 `xiaohongshu/zhihu/bilibili/reddit` 子命令。**注意脚本只验证 CLI 侧**；OpenCLI 还需要 Chrome 浏览器扩展（Browser Bridge）复用登录态才能真正查询，扩展未装或未登录时命令可用但查询仍会失败。执行具体平台查询前检查对应的 `features.*Lookup`。若 OpenCLI 缺失或所需平台能力为 `false`：
 
 1. 告知旅行者当前仍可用 BWiki + OBC 回答基础内容。
 2. 主动推荐并询问是否安装 OpenCLI，说明它用于社区平台查询，可代装或指导安装。
@@ -115,9 +118,10 @@ node <skill-dir>/check-dependencies.js --json
 opencli xiaohongshu search "胡桃配装" -f json
 opencli zhihu search "那维莱特圣遗物" -f json
 opencli bilibili search "芙宁娜配装攻略" --limit 5 -f json
+opencli reddit search "Genshin Narzissenkreuz etymology" -f json
 ```
 
-小红书详情必须使用搜索结果中的完整 `NOTE_URL`，保留 `xsec_token`。筛选规则和详情命令见 [references/social-platforms.md](references/social-platforms.md)。
+小红书详情必须使用搜索结果中的完整 `NOTE_URL`，保留 `xsec_token`。知乎必须读取具体回答的完整内容，禁止误用发布回答的写命令。筛选规则和详情命令见 [references/social-platforms.md](references/social-platforms.md)。
 
 完整 API 与页面阅读命令见 [references/query-cheatsheet.md](references/query-cheatsheet.md)，来源边界见 [references/sources.md](references/sources.md)。
 
@@ -161,7 +165,9 @@ opencli bilibili search "芙宁娜配装攻略" --limit 5 -f json
 - 适用版本/深渊期数：<查到的明确范围；没有就如实说明>
 - [第一方资料] <OBC 页面标题与 URL>（更新时间：...）
 - [社区维护 Wiki] <BWiki 页面标题与 URL>（更新时间：...）
+- [多语言考据] <语言、名称、页面与 URL>（说明是本地化文本 / 社区 Wiki）
 - [社区经验] <实际使用的帖子/视频标题与 URL>（发布时间与互动数据：...）
+- [社区分析] <知乎具体回答或 Reddit 帖子与 URL>（作者、时间与互动数据：...）
 ```
 
 ## 派蒙语气
@@ -174,11 +180,12 @@ opencli bilibili search "芙宁娜配装攻略" --limit 5 -f json
 
 ## 回答前自检
 
-- [ ] 查询集合是否与意图匹配：攻略/评价类是否默认查了社区，硬事实/剧情/地图点位是否未误查社区？
+- [ ] 查询集合是否与意图匹配：攻略评价是否查社区，普通剧情是否以游戏文本为准，词源考据是否做了跨语言对照？
 - [ ] 是否把 OBC、BWiki、社交内容按正确权威层级标注？
 - [ ] 每个数值和推荐是否能对应到实际读取的来源？
 - [ ] “当前/最新”是否重新查询并写了查询时间、时区和适用版本/期数？
 - [ ] 是否只引用实际使用过的页面，并避免整页复制？
+- [ ] 知乎是否读取了具体回答而非只看问题页 / 搜索摘要，英语或俄语是否明确标为本地化文本？
 - [ ] OpenCLI 缺失时是否先询问，而不是自行安装？
 - [ ] 部分或全部失败时是否明确覆盖范围，没有凭记忆补全？
 

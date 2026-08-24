@@ -15,3 +15,6 @@ export const deleteProvider = (id: string) => invoke<void>("delete_provider", { 
 
 export const testProvider = (input: SaveProviderInput) =>
   invoke<CapabilityReport>("test_provider", { input });
+
+export const listProviderModels = (input: SaveProviderInput) =>
+  invoke<string[]>("list_provider_models", { input });

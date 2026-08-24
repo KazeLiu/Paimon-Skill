@@ -1,13 +1,165 @@
 use futures_util::StreamExt;
-use reqwest::header::{AUTHORIZATION, CONTENT_TYPE};
-use serde_json::{json, Value};
+use reqwest::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE};
+use serde_json::Value;
 use tokio::sync::mpsc::UnboundedSender;
-use url::Url;
+
+use crate::diagnostics::redact_sensitive_text;
 
 use super::models::{
-    CapabilityReport, CapabilityStatus, ChatMessage, ProviderConfig, StreamEvent, ToolCall,
-    ToolDefinition,
+    CapabilityDiagnostic, CapabilityReport, CapabilityStatus, ChatMessage, ProviderConfig,
+    StreamEvent, ToolCall, ToolDefinition,
 };
+
+const MAX_DIAGNOSTIC_BODY: usize = 8_192;
+const MAX_ERROR_MESSAGE: usize = 1_024;
+pub const CONNECTION_TEST_PROMPT: &str = "帮我看看今天的原神的卡池是什么";
+
+#[derive(Debug)]
+struct DiagnosticError {
+    message: String,
+    diagnostic: CapabilityDiagnostic,
+}
+
+impl From<String> for DiagnosticError {
+    fn from(message: String) -> Self {
+        let message = bounded_error_message(&message);
+        Self {
+            message: message.clone(),
+            diagnostic: CapabilityDiagnostic {
+                stage: "request".into(),
+                endpoint: String::new(),
+                http_status: None,
+                content_type: None,
+                response_headers: Vec::new(),
+                response_body: String::new(),
+                parse_error: Some(message),
+                truncated: false,
+            },
+        }
+    }
+}
+
+fn safe_headers(response: &reqwest::Response) -> Vec<String> {
+    response
+        .headers()
+        .iter()
+        .filter_map(|(name, value)| {
+            let name = name.as_str().to_ascii_lowercase();
+            if matches!(
+                name.as_str(),
+                "authorization" | "cookie" | "set-cookie" | "proxy-authorization"
+            ) || ["auth", "token", "secret", "api-key", "apikey"]
+                .iter()
+                .any(|term| name.contains(term))
+            {
+                return None;
+            }
+            Some(format!(
+                "{}: {}",
+                name,
+                value.to_str().unwrap_or("<非 UTF-8>")
+            ))
+            .map(|header| redact_sensitive_text(&header))
+        })
+        .take(40)
+        .collect()
+}
+
+fn bounded_body(body: &str) -> (String, bool) {
+    let mut chars = body.chars();
+    let bounded: String = chars.by_ref().take(MAX_DIAGNOSTIC_BODY).collect();
+    let redacted = redact_sensitive_text(&bounded);
+    (redacted, chars.next().is_some())
+}
+
+fn bounded_error_message(message: &str) -> String {
+    let redacted = redact_sensitive_text(message);
+    let mut chars = redacted.chars();
+    let bounded: String = chars.by_ref().take(MAX_ERROR_MESSAGE).collect();
+    if chars.next().is_some() {
+        format!("{bounded}…")
+    } else {
+        bounded
+    }
+}
+
+fn safe_endpoint(endpoint: &str) -> String {
+    redact_sensitive_text(endpoint)
+}
+
+pub fn diagnostic_for_invalid_json(
+    endpoint: &str,
+    http_status: u16,
+    content_type: Option<&str>,
+    response_headers: &[String],
+    response_body: &str,
+    parse_error: &str,
+) -> CapabilityDiagnostic {
+    let (response_body, truncated) = bounded_body(response_body);
+    CapabilityDiagnostic {
+        stage: "decode_json".into(),
+        endpoint: safe_endpoint(endpoint),
+        http_status: Some(http_status),
+        content_type: content_type.map(str::to_owned),
+        response_headers: response_headers.to_vec(),
+        response_body,
+        parse_error: Some(bounded_error_message(parse_error)),
+        truncated,
+    }
+}
+
+fn diagnostic_error(
+    stage: &str,
+    endpoint: &str,
+    response: Option<&reqwest::Response>,
+    body: &str,
+    parse_error: Option<String>,
+) -> DiagnosticError {
+    let (response_body, truncated) = bounded_body(body);
+    let parse_error = parse_error.map(|error| bounded_error_message(&error));
+    DiagnosticError {
+        message: parse_error.clone().unwrap_or_else(|| "模型请求失败".into()),
+        diagnostic: CapabilityDiagnostic {
+            stage: stage.into(),
+            endpoint: safe_endpoint(endpoint),
+            http_status: response.map(|value| value.status().as_u16()),
+            content_type: response
+                .and_then(|value| value.headers().get(CONTENT_TYPE))
+                .and_then(|value| value.to_str().ok())
+                .map(str::to_owned),
+            response_headers: response.map(safe_headers).unwrap_or_default(),
+            response_body,
+            parse_error,
+            truncated,
+        },
+    }
+}
+
+fn diagnostic_error_from_parts(
+    stage: &str,
+    endpoint: &str,
+    http_status: Option<u16>,
+    content_type: Option<String>,
+    response_headers: Vec<String>,
+    body: &str,
+    parse_error: Option<String>,
+) -> DiagnosticError {
+    let (response_body, truncated) = bounded_body(body);
+    let parse_error = parse_error.map(|error| bounded_error_message(&error));
+    DiagnosticError {
+        message: parse_error.clone().unwrap_or_else(|| "模型请求失败".into()),
+        diagnostic: CapabilityDiagnostic {
+            stage: stage.into(),
+            endpoint: safe_endpoint(endpoint),
+            http_status,
+            content_type,
+            response_headers,
+            response_body,
+            parse_error,
+            truncated,
+        },
+    }
+}
 
 #[derive(Clone)]
 pub struct OpenAiCompatibleClient {
@@ -29,62 +181,52 @@ impl OpenAiCompatibleClient {
         api_key: &str,
     ) -> CapabilityReport {
         let basic_request = match self
-            .complete(provider, api_key, &[ChatMessage::user("ping")], &[])
+            .complete_with_diagnostic(
+                provider,
+                api_key,
+                &[ChatMessage::user(CONNECTION_TEST_PROMPT)],
+                &[],
+            )
             .await
         {
             Ok(_) => CapabilityStatus::ok("基础请求成功"),
-            Err(error) => CapabilityStatus::failed(error),
+            Err(error) => CapabilityStatus::failed_with(error.message, error.diagnostic),
         };
 
-        let streaming = if provider.streaming {
-            match self
-                .stream(
-                    provider,
-                    api_key,
-                    &[ChatMessage::user("ping")],
-                    &[],
-                    &tokio::sync::mpsc::unbounded_channel().0,
-                )
-                .await
-            {
-                Ok(()) => CapabilityStatus::ok("流式输出成功"),
-                Err(error) => CapabilityStatus::failed(error),
-            }
-        } else {
-            CapabilityStatus::failed("配置已关闭流式输出")
-        };
+        CapabilityReport { basic_request }
+    }
 
-        let tool_calling = if provider.tool_calling {
-            let tool = ToolDefinition {
-                r#type: "function".into(),
-                function: super::models::ToolFunction {
-                    name: "connection_probe".into(),
-                    description: "返回连接测试结果".into(),
-                    parameters: json!({"type":"object","properties":{}}),
-                },
-            };
-            match self
-                .complete(
-                    provider,
-                    api_key,
-                    &[ChatMessage::user("call the probe")],
-                    &[tool],
-                )
-                .await
-            {
-                Ok(response) if response.contains_tool_call => CapabilityStatus::ok("工具调用成功"),
-                Ok(_) => CapabilityStatus::failed("模型返回了普通文本，未检测到工具调用"),
-                Err(error) => CapabilityStatus::failed(error),
-            }
-        } else {
-            CapabilityStatus::failed("配置已关闭工具调用")
-        };
-
-        CapabilityReport {
-            basic_request,
-            streaming,
-            tool_calling,
+    pub async fn list_models(
+        &self,
+        provider: &ProviderConfig,
+        api_key: &str,
+    ) -> Result<Vec<String>, String> {
+        let url = super::responses::models_url(&provider.base_url)?;
+        let response = self
+            .http
+            .get(&url)
+            .header(AUTHORIZATION, format!("Bearer {api_key}"))
+            .header("x-api-key", api_key)
+            .header(ACCEPT, "application/json")
+            .timeout(std::time::Duration::from_millis(provider.timeout_ms))
+            .send()
+            .await
+            .map_err(|error| format!("获取模型列表失败：{error}"))?;
+        let status = response.status();
+        let body = response
+            .text()
+            .await
+            .map_err(|error| format!("读取模型列表失败：{error}"))?;
+        if !status.is_success() {
+            return Err(format!(
+                "获取模型列表返回 HTTP {}：{}",
+                status.as_u16(),
+                error_message_from_body(&body)
+            ));
         }
+        let value: Value = serde_json::from_str(&body)
+            .map_err(|error| format!("模型列表不是有效 JSON：{error}"))?;
+        super::responses::parse_models(&value)
     }
 
     pub async fn complete(
@@ -94,66 +236,97 @@ impl OpenAiCompatibleClient {
         messages: &[ChatMessage],
         tools: &[ToolDefinition],
     ) -> Result<CompletionResult, String> {
-        let url = chat_completions_url(&provider.base_url)?;
-        let body = request_body(provider, messages, tools);
+        self.complete_with_diagnostic(provider, api_key, messages, tools)
+            .await
+            .map_err(|error| error.message)
+    }
+
+    async fn complete_with_diagnostic(
+        &self,
+        provider: &ProviderConfig,
+        api_key: &str,
+        messages: &[ChatMessage],
+        tools: &[ToolDefinition],
+    ) -> Result<CompletionResult, DiagnosticError> {
+        let url = provider_url(provider).map_err(DiagnosticError::from)?;
+        let body = request_body_for_provider(provider, messages, tools, false);
         let response = self
             .http
-            .post(url)
+            .post(&url)
             .header(AUTHORIZATION, format!("Bearer {api_key}"))
+            .header("x-api-key", api_key)
             .header(CONTENT_TYPE, "application/json")
+            .header(ACCEPT, "application/json")
             .timeout(std::time::Duration::from_millis(provider.timeout_ms))
             .json(&body)
             .send()
             .await
-            .map_err(|error| format!("模型请求失败：{error}"))?;
+            .map_err(|error| {
+                diagnostic_error(
+                    "request",
+                    &url,
+                    None,
+                    "",
+                    Some(format!("模型请求失败：{error}")),
+                )
+            })?;
         let status = response.status();
-        let value: Value = response
-            .json()
-            .await
-            .map_err(|error| format!("模型响应不是有效 JSON：{error}"))?;
+        let headers = safe_headers(&response);
+        let content_type = response
+            .headers()
+            .get(CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_owned);
+        let endpoint = url.clone();
+        let body_text = response.text().await.map_err(|error| {
+            diagnostic_error(
+                "read_body",
+                &endpoint,
+                None,
+                "",
+                Some(format!("读取模型响应失败：{error}")),
+            )
+        })?;
         if !status.is_success() {
-            return Err(format!(
-                "模型返回 HTTP {}：{}",
-                status.as_u16(),
-                error_message(&value)
+            return Err(diagnostic_error_from_parts(
+                "http_status",
+                &endpoint,
+                Some(status.as_u16()),
+                content_type,
+                headers,
+                &body_text,
+                Some(format!(
+                    "模型返回 HTTP {}：{}",
+                    status.as_u16(),
+                    error_message_from_body(&body_text)
+                )),
             ));
         }
-        let choice = value
-            .get("choices")
-            .and_then(Value::as_array)
-            .and_then(|choices| choices.first())
-            .ok_or_else(|| "模型响应缺少 choices".to_string())?;
-        let message = choice.get("message").cloned().unwrap_or(Value::Null);
+        let value: Value = serde_json::from_str(&body_text).map_err(|error| DiagnosticError {
+            message: format!("模型响应不是有效 JSON：{error}"),
+            diagnostic: diagnostic_for_invalid_json(
+                &endpoint,
+                status.as_u16(),
+                content_type.as_deref(),
+                &headers,
+                &body_text,
+                &error.to_string(),
+            ),
+        })?;
+        let response = super::responses::parse_response(&value).map_err(|error| {
+            diagnostic_error_from_parts(
+                "validate_schema",
+                &endpoint,
+                Some(status.as_u16()),
+                content_type.clone(),
+                headers.clone(),
+                &body_text,
+                Some(error),
+            )
+        })?;
         Ok(CompletionResult {
-            content: message
-                .get("content")
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .to_owned(),
-            contains_tool_call: message
-                .get("tool_calls")
-                .and_then(Value::as_array)
-                .is_some_and(|calls| !calls.is_empty()),
-            tool_calls: message
-                .get("tool_calls")
-                .and_then(Value::as_array)
-                .map(|calls| {
-                    calls
-                        .iter()
-                        .filter_map(|call| {
-                            Some(ToolCall {
-                                id: call.get("id")?.as_str()?.to_owned(),
-                                name: call.pointer("/function/name")?.as_str()?.to_owned(),
-                                arguments: call
-                                    .pointer("/function/arguments")?
-                                    .as_str()?
-                                    .to_owned(),
-                            })
-                        })
-                        .collect()
-                })
-                .unwrap_or_default(),
-            raw: value,
+            content: response.content,
+            tool_calls: response.tool_calls,
         })
     }
 
@@ -165,37 +338,96 @@ impl OpenAiCompatibleClient {
         tools: &[ToolDefinition],
         sender: &UnboundedSender<StreamEvent>,
     ) -> Result<(), String> {
-        let url = chat_completions_url(&provider.base_url)?;
-        let body = request_body(provider, messages, tools);
+        self.stream_with_diagnostic(provider, api_key, messages, tools, sender)
+            .await
+            .map_err(|error| error.message)
+    }
+
+    async fn stream_with_diagnostic(
+        &self,
+        provider: &ProviderConfig,
+        api_key: &str,
+        messages: &[ChatMessage],
+        tools: &[ToolDefinition],
+        sender: &UnboundedSender<StreamEvent>,
+    ) -> Result<(), DiagnosticError> {
+        let url = provider_url(provider).map_err(DiagnosticError::from)?;
+        let body = request_body_for_provider(provider, messages, tools, true);
         let response = self
             .http
-            .post(url)
+            .post(&url)
             .header(AUTHORIZATION, format!("Bearer {api_key}"))
+            .header("x-api-key", api_key)
             .header(CONTENT_TYPE, "application/json")
+            .header(ACCEPT, "text/event-stream")
             .timeout(std::time::Duration::from_millis(provider.timeout_ms))
             .json(&body)
             .send()
             .await
-            .map_err(|error| format!("模型流式请求失败：{error}"))?;
+            .map_err(|error| {
+                diagnostic_error(
+                    "request",
+                    &url,
+                    None,
+                    "",
+                    Some(format!("模型流式请求失败：{error}")),
+                )
+            })?;
         let status = response.status();
+        let status_code = status.as_u16();
+        let headers = safe_headers(&response);
+        let content_type = response
+            .headers()
+            .get(CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_owned);
         if !status.is_success() {
             let body = response.text().await.unwrap_or_default();
-            return Err(format!("模型返回 HTTP {}：{}", status.as_u16(), body));
+            return Err(diagnostic_error_from_parts(
+                "http_status",
+                &url,
+                Some(status.as_u16()),
+                content_type,
+                headers,
+                &body,
+                Some(format!("模型返回 HTTP {}：{}", status.as_u16(), body)),
+            ));
         }
 
         let mut bytes = response.bytes_stream();
         let mut pending = String::new();
         while let Some(chunk) = bytes.next().await {
-            let chunk = chunk.map_err(|error| format!("读取模型流失败：{error}"))?;
+            let chunk = chunk.map_err(|error| {
+                diagnostic_error_from_parts(
+                    "read_stream",
+                    &url,
+                    Some(status_code),
+                    content_type.clone(),
+                    headers.clone(),
+                    &pending,
+                    Some(format!("读取模型流失败：{error}")),
+                )
+            })?;
             pending.push_str(&String::from_utf8_lossy(&chunk));
             while let Some(index) = pending.find('\n') {
                 let line = pending[..index].trim_end_matches('\r').to_owned();
                 pending.drain(..=index);
-                for event in parse_sse_line(&line)? {
+                let events = parse_provider_sse_line(provider, &line).map_err(|error| {
+                    diagnostic_error_from_parts(
+                        "parse_sse",
+                        &url,
+                        Some(status_code),
+                        content_type.clone(),
+                        headers.clone(),
+                        &line,
+                        Some(error),
+                    )
+                })?;
+                for event in events {
                     let done = matches!(event, StreamEvent::Done);
                     sender
                         .send(event)
-                        .map_err(|_| "流式响应接收方已关闭".to_string())?;
+                        .map_err(|_| DiagnosticError::from("流式响应接收方已关闭".to_string()))?;
                     if done {
                         return Ok(());
                     }
@@ -203,10 +435,21 @@ impl OpenAiCompatibleClient {
             }
         }
         if !pending.trim().is_empty() {
-            for event in parse_sse_line(pending.trim())? {
+            let events = parse_provider_sse_line(provider, pending.trim()).map_err(|error| {
+                diagnostic_error_from_parts(
+                    "parse_sse",
+                    &url,
+                    Some(status_code),
+                    content_type,
+                    headers,
+                    pending.trim(),
+                    Some(error),
+                )
+            })?;
+            for event in events {
                 sender
                     .send(event)
-                    .map_err(|_| "流式响应接收方已关闭".to_string())?;
+                    .map_err(|_| DiagnosticError::from("流式响应接收方已关闭".to_string()))?;
             }
         }
         Ok(())
@@ -216,9 +459,7 @@ impl OpenAiCompatibleClient {
 #[derive(Debug, Clone)]
 pub struct CompletionResult {
     pub content: String,
-    pub contains_tool_call: bool,
     pub tool_calls: Vec<ToolCall>,
-    pub raw: Value,
 }
 
 fn error_message(value: &Value) -> String {
@@ -231,229 +472,169 @@ fn error_message(value: &Value) -> String {
         .to_owned()
 }
 
-pub fn chat_completions_url(base_url: &str) -> Result<String, String> {
-    let mut url = Url::parse(base_url.trim()).map_err(|error| format!("模型地址无效：{error}"))?;
-    if !matches!(url.scheme(), "http" | "https") {
-        return Err("模型地址必须使用 HTTP 或 HTTPS".into());
-    }
-
-    let path = url.path().trim_end_matches('/');
-    if path.ends_with("/chat/completions") {
-        return Ok(url.to_string().trim_end_matches('/').to_string());
-    }
-
-    let next_path = if path.is_empty() {
-        "/chat/completions".to_owned()
-    } else {
-        format!("{path}/chat/completions")
-    };
-    url.set_path(&next_path);
-    Ok(url.to_string())
+fn error_message_from_body(body: &str) -> String {
+    serde_json::from_str::<Value>(body)
+        .ok()
+        .map(|value| error_message(&value))
+        .filter(|message| message != "未提供错误详情")
+        .or_else(|| {
+            let message = body.trim();
+            (!message.is_empty()).then(|| bounded_error_message(message))
+        })
+        .unwrap_or_else(|| "未提供错误详情".into())
 }
 
-pub fn request_body(
+fn provider_url(provider: &ProviderConfig) -> Result<String, String> {
+    super::responses::responses_url(&provider.base_url)
+}
+
+fn request_body_for_provider(
     provider: &ProviderConfig,
     messages: &[ChatMessage],
     tools: &[ToolDefinition],
+    stream: bool,
 ) -> Value {
-    let mut body = json!({
-        "model": provider.model,
-        "messages": messages,
-        "temperature": provider.temperature,
-        "max_tokens": provider.max_tokens,
-        "stream": provider.streaming,
-    });
-    if provider.tool_calling && !tools.is_empty() {
-        body["tools"] = serde_json::to_value(tools).expect("tool definitions serialize");
-    }
-    body
+    super::responses::request_body(
+        &provider.model,
+        messages,
+        if provider.tool_calling { tools } else { &[] },
+        stream,
+    )
 }
 
-pub fn parse_sse_line(line: &str) -> Result<Vec<StreamEvent>, String> {
-    let line = line.trim();
-    if line.is_empty() || line.starts_with(':') {
-        return Ok(Vec::new());
-    }
-    let Some(data) = line.strip_prefix("data:").map(str::trim) else {
-        return Ok(Vec::new());
-    };
-    if data == "[DONE]" {
-        return Ok(vec![StreamEvent::Done]);
-    }
-
-    let payload: Value =
-        serde_json::from_str(data).map_err(|error| format!("SSE 数据无效：{error}"))?;
-    let choice = payload
-        .get("choices")
-        .and_then(Value::as_array)
-        .and_then(|choices| choices.first())
-        .ok_or_else(|| "SSE 数据缺少 choices".to_string())?;
-    let delta = choice.get("delta").cloned().unwrap_or(Value::Null);
-
-    let mut events = Vec::new();
-    if let Some(content) = delta.get("content").and_then(Value::as_str) {
-        if !content.is_empty() {
-            events.push(StreamEvent::ContentDelta(content.into()));
-        }
-    }
-
-    if let Some(tool_calls) = delta.get("tool_calls").and_then(Value::as_array) {
-        for tool in tool_calls {
-            let function = tool.get("function").cloned().unwrap_or(Value::Null);
-            events.push(StreamEvent::ToolCallDelta {
-                index: tool.get("index").and_then(Value::as_u64).unwrap_or(0) as usize,
-                id: tool.get("id").and_then(Value::as_str).map(str::to_owned),
-                name: function
-                    .get("name")
-                    .and_then(Value::as_str)
-                    .map(str::to_owned),
-                arguments: function
-                    .get("arguments")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default()
-                    .to_owned(),
-            });
-        }
-    }
-
-    Ok(events)
+fn parse_provider_sse_line(
+    _provider: &ProviderConfig,
+    line: &str,
+) -> Result<Vec<StreamEvent>, String> {
+    super::responses::parse_sse_line(line)
 }
 
 #[cfg(test)]
 mod tests {
-    use serde_json::json;
-
-    use super::{chat_completions_url, parse_sse_line, request_body};
-    use crate::providers::models::{
-        ChatMessage, ProviderConfig, StreamEvent, ToolDefinition, ToolFunction,
+    use std::{
+        io::{Read, Write},
+        net::TcpListener,
     };
 
-    fn provider(base_url: &str) -> ProviderConfig {
+    use serde_json::Value;
+
+    use super::*;
+
+    fn provider(base_url: String) -> ProviderConfig {
         ProviderConfig {
-            id: "deepseek".into(),
-            name: "DeepSeek".into(),
-            base_url: base_url.into(),
-            model: "deepseek-chat".into(),
-            secret_ref: "provider:deepseek".into(),
-            timeout_ms: 30_000,
-            temperature: 0.3,
-            max_tokens: 2048,
+            id: "relay".into(),
+            name: "Relay".into(),
+            base_url,
+            model: "test-model".into(),
+            secret_ref: "provider:relay".into(),
+            timeout_ms: 2_000,
             streaming: true,
             tool_calling: true,
             enabled: true,
         }
     }
 
-    #[test]
-    fn normalizes_base_url_to_chat_completions_endpoint() {
-        assert_eq!(
-            chat_completions_url("https://api.deepseek.com").unwrap(),
-            "https://api.deepseek.com/chat/completions"
-        );
-        assert_eq!(
-            chat_completions_url("http://127.0.0.1:11434/v1/").unwrap(),
-            "http://127.0.0.1:11434/v1/chat/completions"
-        );
-        assert_eq!(
-            chat_completions_url("https://relay.example/v1/chat/completions").unwrap(),
-            "https://relay.example/v1/chat/completions"
-        );
+    fn read_request(mut stream: &std::net::TcpStream) -> String {
+        let mut request = Vec::new();
+        let mut buffer = [0_u8; 4096];
+        let expected_length = loop {
+            let count = stream.read(&mut buffer).unwrap();
+            request.extend_from_slice(&buffer[..count]);
+            let text = String::from_utf8_lossy(&request);
+            if let Some(header_end) = text.find("\r\n\r\n") {
+                let content_length = text[..header_end]
+                    .lines()
+                    .find_map(|line| {
+                        line.to_ascii_lowercase()
+                            .strip_prefix("content-length:")
+                            .and_then(|value| value.trim().parse::<usize>().ok())
+                    })
+                    .unwrap_or(0);
+                break header_end + 4 + content_length;
+            }
+        };
+        while request.len() < expected_length {
+            let count = stream.read(&mut buffer).unwrap();
+            request.extend_from_slice(&buffer[..count]);
+        }
+        String::from_utf8(request).unwrap()
     }
 
-    #[test]
-    fn rejects_unsupported_endpoint_protocols() {
-        let error = chat_completions_url("file:///etc/passwd").unwrap_err();
-        assert!(error.contains("HTTP"));
+    #[tokio::test]
+    async fn connection_test_sends_one_responses_request_with_overridden_headers() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let request = read_request(&stream);
+            let response_body =
+                r#"{"output":[{"type":"message","content":[{"type":"output_text","text":"ok"}]}]}"#;
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                response_body.len(),
+                response_body
+            )
+            .unwrap();
+            request
+        });
+
+        let report = OpenAiCompatibleClient::new()
+            .unwrap()
+            .test_capabilities(&provider(format!("http://{address}/v1")), "test-secret")
+            .await;
+
+        assert!(report.basic_request.supported);
+        let request = server.join().unwrap();
+        let (head, body) = request.split_once("\r\n\r\n").unwrap();
+        let head = head.to_ascii_lowercase();
+        assert!(head.starts_with("post /v1/responses http/1.1"));
+        assert!(head.contains("authorization: bearer test-secret"));
+        assert!(head.contains("x-api-key: test-secret"));
+        assert!(head.contains("accept: application/json"));
+
+        let body: Value = serde_json::from_str(body).unwrap();
+        assert_eq!(body["input"][0]["content"], CONNECTION_TEST_PROMPT);
+        assert!(body.get("temperature").is_none());
+        assert!(body.get("max_output_tokens").is_none());
     }
 
-    #[test]
-    fn builds_openai_compatible_stream_request() {
-        let body = request_body(
-            &provider("https://api.deepseek.com"),
-            &[ChatMessage::system("system"), ChatMessage::user("hello")],
-            &[],
-        );
+    #[tokio::test]
+    async fn streaming_http_errors_are_redacted_and_bounded() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let _ = read_request(&stream);
+            let response_body = format!(
+                "{{\"error\":{{\"message\":\"Bearer upstream-secret {}\"}}}}",
+                "x".repeat(MAX_ERROR_MESSAGE * 2)
+            );
+            write!(
+                stream,
+                "HTTP/1.1 503 Service Unavailable\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                response_body.len(),
+                response_body
+            )
+            .unwrap();
+        });
+        let (sender, _receiver) = tokio::sync::mpsc::unbounded_channel();
 
-        assert_eq!(body["model"], "deepseek-chat");
-        assert_eq!(body["stream"], true);
-        assert_eq!(
-            body["messages"][0],
-            json!({"role":"system","content":"system"})
-        );
-        assert_eq!(
-            body["messages"][1],
-            json!({"role":"user","content":"hello"})
-        );
-    }
+        let error = OpenAiCompatibleClient::new()
+            .unwrap()
+            .stream_with_diagnostic(
+                &provider(format!("http://{address}/v1")),
+                "client-secret",
+                &[ChatMessage::user("test")],
+                &[],
+                &sender,
+            )
+            .await
+            .unwrap_err();
 
-    #[test]
-    fn omits_tools_when_provider_tool_calling_is_disabled() {
-        let mut config = provider("https://api.deepseek.com");
-        config.tool_calling = false;
-        let tools = vec![ToolDefinition {
-            r#type: "function".into(),
-            function: ToolFunction {
-                name: "read_url".into(),
-                description: "read".into(),
-                parameters: json!({"type":"object"}),
-            },
-        }];
-
-        let body = request_body(&config, &[ChatMessage::user("hello")], &tools);
-
-        assert!(body.get("tools").is_none());
-    }
-
-    #[test]
-    fn parses_content_and_tool_call_sse_deltas() {
-        let content = parse_sse_line(
-            r#"data: {"choices":[{"delta":{"content":"你好"},"finish_reason":null}]}"#,
-        )
-        .unwrap();
-        assert_eq!(content, vec![StreamEvent::ContentDelta("你好".into())]);
-
-        let tool = parse_sse_line(
-            r#"data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"search_bwiki","arguments":"{\"query\":"}}]},"finish_reason":null}]}"#,
-        )
-        .unwrap();
-        assert_eq!(
-            tool,
-            vec![StreamEvent::ToolCallDelta {
-                index: 0,
-                id: Some("call_1".into()),
-                name: Some("search_bwiki".into()),
-                arguments: "{\"query\":".into(),
-            }]
-        );
-    }
-
-    #[test]
-    fn parses_every_tool_call_delta_in_one_sse_event() {
-        let events = parse_sse_line(
-            r#"data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_a","function":{"name":"search_bwiki","arguments":"{}"}},{"index":1,"id":"call_b","function":{"name":"read_url","arguments":"{\"url\":"}}]},"finish_reason":null}]}"#,
-        )
-        .unwrap();
-
-        assert_eq!(events.len(), 2);
-        assert!(matches!(
-            &events[0],
-            StreamEvent::ToolCallDelta { index: 0, id: Some(id), .. } if id == "call_a"
-        ));
-        assert!(matches!(
-            &events[1],
-            StreamEvent::ToolCallDelta { index: 1, id: Some(id), .. } if id == "call_b"
-        ));
-    }
-
-    #[test]
-    fn handles_done_comments_and_malformed_sse() {
-        assert!(parse_sse_line(": keep-alive").unwrap().is_empty());
-        assert_eq!(
-            parse_sse_line("data: [DONE]").unwrap(),
-            vec![StreamEvent::Done]
-        );
-        assert!(parse_sse_line("data: not-json")
-            .unwrap_err()
-            .contains("SSE"));
+        server.join().unwrap();
+        assert!(!error.message.contains("upstream-secret"));
+        assert!(error.message.contains("[REDACTED]"));
+        assert!(error.message.chars().count() <= MAX_ERROR_MESSAGE + 1);
     }
 }

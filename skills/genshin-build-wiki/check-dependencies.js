@@ -32,6 +32,7 @@ function createReport() {
     xiaohongshu: opencli.installed && checkCommand('opencli', ['xiaohongshu', '--help']).installed,
     zhihu: opencli.installed && checkCommand('opencli', ['zhihu', '--help']).installed,
     bilibili: opencli.installed && checkCommand('opencli', ['bilibili', '--help']).installed,
+    reddit: opencli.installed && checkCommand('opencli', ['reddit', '--help']).installed,
   };
 
   return {
@@ -47,6 +48,7 @@ function createReport() {
       xiaohongshuLookup: capabilities.xiaohongshu,
       zhihuLookup: capabilities.zhihu,
       bilibiliLookup: capabilities.bilibili,
+      redditLookup: capabilities.reddit,
       communityLookup: Object.values(capabilities).some(Boolean),
     },
   };
@@ -62,7 +64,8 @@ function printHumanReadable(report) {
     console.log(`Xiaohongshu lookup: ${report.features.xiaohongshuLookup ? 'available' : 'unavailable'}`);
     console.log(`Zhihu lookup: ${report.features.zhihuLookup ? 'available' : 'unavailable'}`);
     console.log(`Bilibili lookup: ${report.features.bilibiliLookup ? 'available' : 'unavailable'}`);
-    if (!report.features.xiaohongshuLookup || !report.features.zhihuLookup || !report.features.bilibiliLookup) {
+    console.log(`Reddit lookup: ${report.features.redditLookup ? 'available' : 'unavailable'}`);
+    if (!report.features.xiaohongshuLookup || !report.features.zhihuLookup || !report.features.bilibiliLookup || !report.features.redditLookup) {
       console.log('Ask the user before installing or updating OpenCLI to repair missing platform capabilities.');
     }
     return;

@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+use crate::attachments::ChatAttachment;
 use crate::tools::registry::ToolResult;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -19,6 +20,8 @@ pub struct Message {
     pub conversation_id: String,
     pub role: String,
     pub content: String,
+    #[serde(default)]
+    pub attachments: Vec<ChatAttachment>,
     pub created_at: String,
 }
 

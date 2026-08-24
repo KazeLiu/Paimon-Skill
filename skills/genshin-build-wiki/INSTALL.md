@@ -1,6 +1,6 @@
 # OpenCLI 安装指南（可选社区依赖）
 
-> skill 本身进目录即用（见根目录 [AGENTS.md](../../AGENTS.md)）。本文只关于查询**小红书 / 知乎 / B站**社区经验所需的可选依赖 **OpenCLI**。不装它，BWiki + OBC 的官方百科查询照常可用。
+> skill 本身进目录即用（见根目录 [AGENTS.md](../../AGENTS.md)）。本文只关于查询**小红书 / 知乎 / B站 / Reddit**社区内容所需的可选依赖 **OpenCLI**。不装它，BWiki + OBC 与公开多语言资料查询照常可用。
 
 ## OpenCLI 是什么，为什么要装两部分
 
@@ -51,7 +51,7 @@ https://chromewebstore.google.com/detail/opencli-browser-bridge/ildkmabpimmkaedi
 
 ## 第三步：登录目标平台
 
-在**同一个 Chrome** 里打开并登录小红书 / 知乎 / B站（查哪个登哪个）。OpenCLI 复用这个登录态。
+在**同一个 Chrome** 里打开并登录小红书 / 知乎 / B站 / Reddit（查哪个登哪个）。OpenCLI 复用这个登录态。
 
 - 登录只在你本机浏览器完成。
 - **不要**把 Cookie、令牌或账号密码粘贴到对话里，Agent 也不会索取。
@@ -68,7 +68,7 @@ node check-dependencies.js
 node check-dependencies.js --json
 ```
 
-脚本检测 `opencli --version` 并分别验证 `xiaohongshu/zhihu/bilibili` 子命令，且：
+脚本检测 `opencli --version` 并分别验证 `xiaohongshu/zhihu/bilibili/reddit` 子命令，且：
 
 - 不安装任何软件
 - 不修改全局环境
@@ -95,6 +95,8 @@ node check-dependencies.js --json
 opencli --version
 opencli bilibili --help
 opencli xiaohongshu --help
+opencli zhihu --help
+opencli reddit --help
 ```
 
 装好扩展并登录后，可用一条真实查询确认全链路通：

@@ -74,6 +74,25 @@ pub fn normalize_browser_url(input: &str) -> Result<Url, String> {
     Ok(url)
 }
 
+pub fn validate_source_connection_url(input: &str) -> Result<Url, String> {
+    const ALLOWED_HOSTS: &[&str] = &[
+        "baike.mihoyo.com",
+        "wiki.biligame.com",
+        "genshin-impact.fandom.com",
+        "ambr.top",
+        "www.xiaohongshu.com",
+        "www.zhihu.com",
+        "www.reddit.com",
+        "www.bilibili.com",
+    ];
+    let url = normalize_browser_url(input)?;
+    let host = url.host_str().unwrap_or_default().to_ascii_lowercase();
+    if !ALLOWED_HOSTS.contains(&host.as_str()) {
+        return Err("连接检测仅允许固定适配的信息源".into());
+    }
+    Ok(url)
+}
+
 pub fn validate_click_target(target: &str) -> Result<String, String> {
     let target = target.trim();
     let length = target.chars().count();
@@ -124,5 +143,12 @@ mod tests {
                 "{label} should be rejected"
             );
         }
+    }
+
+    #[test]
+    fn source_connection_only_allows_fixed_source_hosts() {
+        assert!(validate_source_connection_url("https://www.zhihu.com/").is_ok());
+        assert!(validate_source_connection_url("https://127.0.0.1/").is_err());
+        assert!(validate_source_connection_url("https://example.com/").is_err());
     }
 }
