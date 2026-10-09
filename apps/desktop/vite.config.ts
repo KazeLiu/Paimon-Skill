@@ -1,4 +1,5 @@
 import { defineConfig } from "vite";
+import { configDefaults } from "vitest/config";
 import vue from "@vitejs/plugin-vue";
 import { fileURLToPath, URL } from "node:url";
 
@@ -28,6 +29,7 @@ export default defineConfig({
     },
   },
   test: {
+    exclude: [...configDefaults.exclude, "**/src-tauri/target/**", "**/src-tauri/target-*/**"],
     environment: "jsdom",
     setupFiles: ["./src/test/setup.ts"],
   },

@@ -21,13 +21,14 @@ import PromptSettingsPage from "@/pages/PromptSettingsPage.vue";
 import PrivacySettingsPage from "@/pages/PrivacySettingsPage.vue";
 import ModelSettingsPage from "@/pages/ModelSettingsPage.vue";
 import DiagnosticsSettingsPage from "@/pages/DiagnosticsSettingsPage.vue";
+import SourceTestSettingsPage from "@/pages/SourceTestSettingsPage.vue";
 import MessageList from "@/components/MessageList.vue";
 import SourceDirectoryPage from "@/pages/SourceDirectoryPage.vue";
 import { useChatStore } from "@/stores/chatStore";
 import type { ChatAttachment, ChatSourceEvent, Conversation, ConversationStep, ToolActivity } from "@/types/chat";
 
 type ViewId = "chat" | "sources" | "settings";
-type SettingsSection = "models" | "prompts" | "privacy" | "diagnostics";
+type SettingsSection = "models" | "prompts" | "privacy" | "diagnostics" | "source-tests";
 
 const activeView = ref<ViewId>("chat");
 const settingsSection = ref<SettingsSection>("models");
@@ -470,6 +471,14 @@ onUnmounted(() => {
           >
             日志
           </button>
+          <button
+            type="button"
+            data-settings-section="source-tests"
+            :class="{ 'is-active': settingsSection === 'source-tests' }"
+            @click="settingsSection = 'source-tests'"
+          >
+            采集测试
+          </button>
         </nav>
         <ModelSettingsPage
           v-if="settingsSection === 'models'"
@@ -478,7 +487,8 @@ onUnmounted(() => {
         />
         <PromptSettingsPage v-else-if="settingsSection === 'prompts'" />
         <PrivacySettingsPage v-else-if="settingsSection === 'privacy'" />
-        <DiagnosticsSettingsPage v-else />
+        <DiagnosticsSettingsPage v-else-if="settingsSection === 'diagnostics'" />
+        <SourceTestSettingsPage v-else />
       </section>
     </main>
 

@@ -4,6 +4,10 @@ use super::models::{ResearchActionRequest, ResearchArtifact, ResearchContext, Re
 
 #[async_trait]
 pub trait ResearchToolExecutor: Send + Sync {
+    /// Read-only ownership information for diagnostic cleanup after an open
+    /// step creates a tab but fails before returning its artifact.
+    fn active_tab_id(&self) -> Option<String> { None }
+
     async fn execute(
         &self,
         request: ResearchActionRequest,

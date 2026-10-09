@@ -55,6 +55,7 @@ describe("App shell", () => {
           PromptSettingsPage: true,
           PrivacySettingsPage: true,
           DiagnosticsSettingsPage: { template: '<div data-testid="diagnostics-settings">诊断日志</div>' },
+          SourceTestSettingsPage: { template: '<div data-testid="source-test-settings">采集测试</div>' },
           SourceDirectoryPage: { template: '<div data-testid="source-directory">信息源目录</div>' },
         },
       },
@@ -97,6 +98,13 @@ describe("App shell", () => {
     await wrapper.get('.rail-settings').trigger('click');
     await wrapper.get('[data-settings-section="diagnostics"]').trigger('click');
     expect(wrapper.find('[data-testid="diagnostics-settings"]').exists()).toBe(true);
+  });
+
+  it("opens source collection tests from the settings tabs", async () => {
+    const wrapper = mountApp();
+    await wrapper.get('.rail-settings').trigger('click');
+    await wrapper.get('[data-settings-section="source-tests"]').trigger('click');
+    expect(wrapper.find('[data-testid="source-test-settings"]').exists()).toBe(true);
   });
 
   it("confirms and deletes one conversation without selecting it", async () => {

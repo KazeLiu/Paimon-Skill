@@ -54,6 +54,10 @@ fn workflow_phase(action: ResearchAction) -> Option<&'static str> {
 
 #[async_trait]
 impl ResearchToolExecutor for TauriBrowserExecutor<'_> {
+    fn active_tab_id(&self) -> Option<String> {
+        self.opened_tab_id.lock().expect("research tab state poisoned").clone()
+    }
+
     async fn execute(
         &self,
         request: ResearchActionRequest,

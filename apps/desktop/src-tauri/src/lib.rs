@@ -8,6 +8,7 @@ mod diagnostics;
 mod prompt;
 mod providers;
 mod research;
+mod source_tests;
 mod storage;
 mod tools;
 
@@ -16,11 +17,13 @@ pub fn run() {
     tauri::Builder::default()
         .manage(agent::state::RunState::default())
         .manage(browser::state::BrowserState::default())
+        .manage(source_tests::SourceTestState::default())
         .setup(|app| {
             commands::chat_repository(&app.handle())?.initialize()?;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            source_tests::run_source_test,
             commands::get_prompt_settings,
             commands::save_prompt_settings,
             commands::reset_prompt_settings,
