@@ -3,6 +3,9 @@ use serde_json::Value;
 
 use crate::attachments::ChatAttachment;
 
+pub const DEFAULT_PROVIDER_TIMEOUT_MS: u64 = 180_000;
+pub const MAX_PROVIDER_TIMEOUT_MS: u64 = 600_000;
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct ProviderConfig {
@@ -15,6 +18,8 @@ pub struct ProviderConfig {
     pub streaming: bool,
     pub tool_calling: bool,
     pub enabled: bool,
+    #[serde(default)]
+    pub is_default: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -155,6 +160,8 @@ pub struct CapabilityDiagnostic {
     pub response_body: String,
     pub parse_error: Option<String>,
     pub truncated: bool,
+    #[serde(default)]
+    pub request_body: String,
 }
 
 impl CapabilityStatus {

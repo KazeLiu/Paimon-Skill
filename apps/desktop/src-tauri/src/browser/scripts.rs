@@ -122,6 +122,7 @@ pub const SEMANTIC_CONTEXT_BOOTSTRAP: &str = r#"
 })()
 "#;
 
+#[cfg_attr(not(test), allow(dead_code))]
 pub const EXTRACT_VISIBLE_PAGE_SCRIPT: &str = SEMANTIC_CONTEXT_BOOTSTRAP;
 
 pub fn semantic_scan_script() -> String {

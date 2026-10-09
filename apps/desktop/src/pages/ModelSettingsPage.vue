@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from "vue";
-import { Check, CircleAlert, FlaskConical, Plus, RefreshCw, Save, Trash2 } from "@lucide/vue";
+import { Check, CircleAlert, FlaskConical, Plus, RefreshCw, Save, Star, Trash2 } from "@lucide/vue";
 
 import { deleteProvider, listProviderModels, listProviders, saveProvider, testProvider } from "@/api/providers";
 import type { CapabilityReport, ProviderConfig, ProviderView } from "@/types/providers";
+
+const DEFAULT_TIMEOUT_MS = 180_000;
 
 const providers = ref<ProviderView[]>([]);
 const selectedId = ref<string | null>(null);
@@ -34,10 +36,11 @@ function blankProvider(): ProviderConfig {
     baseUrl: "",
     model: "",
     secretRef: "",
-    timeoutMs: 30000,
+    timeoutMs: DEFAULT_TIMEOUT_MS,
     streaming: true,
     toolCalling: true,
     enabled: true,
+    isDefault: false,
   };
 }
 
@@ -208,6 +211,14 @@ onMounted(load);
             <span>Base URL</span>
             <input data-field="base-url" v-model="form.baseUrl" required placeholder="https://api.example.com/v1" />
           </label>
+          <label class="form-field">
+            <span>请求超时</span>
+            <span class="input-with-suffix">
+              <input data-field="timeout-ms" v-model.number="form.timeoutMs" type="number" min="1" max="600" step="1" required />
+              <em>秒</em>
+            </span>
+            <small>中转站排队较久时可提高，最多 600 秒</small>
+          </label>
           <label class="form-field form-field-wide">
             <span>API Key <small>只保存到系统凭据库</small></span>
             <input data-field="api-key" v-model="apiKey" type="password" autocomplete="new-password" placeholder="留空则使用已保存的 Key" />
@@ -225,6 +236,11 @@ onMounted(load);
                 {{ loadingModels ? "获取中" : "获取模型" }}
               </button>
             </span>
+          </label>
+          <label class="default-provider-toggle" data-role="default-provider-toggle">
+            <input data-field="default-provider" v-model="form.isDefault" type="checkbox" />
+            <Star :size="16" aria-hidden="true" />
+            <span><strong>设为默认模型</strong><small>新建对话会自动使用此模型</small></span>
           </label>
         </div>
 
@@ -254,6 +270,10 @@ onMounted(load);
               <div v-if="entry.status.diagnostic.responseBody" class="diagnostic-block">
                 <strong>响应正文{{ entry.status.diagnostic.truncated ? "（已截断）" : "" }}</strong>
                 <pre>{{ entry.status.diagnostic.responseBody }}</pre>
+              </div>
+              <div v-if="entry.status.diagnostic.requestBody" class="diagnostic-block">
+                <strong>请求正文（已脱敏）</strong>
+                <pre>{{ entry.status.diagnostic.requestBody }}</pre>
               </div>
             </details>
           </div>

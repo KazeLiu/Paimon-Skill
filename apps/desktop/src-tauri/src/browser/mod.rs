@@ -117,4 +117,32 @@ mod agent_tools_tests {
         let encoded = result.content.split("语义 DOM：\n").nth(1).unwrap().trim();
         assert!(serde_json::from_str::<serde_json::Value>(encoded).is_ok());
     }
+
+    #[test]
+    fn bilibili_search_snapshot_is_marked_discovery_only() {
+        let result = snapshot_to_tool_result(
+            "browser_open_page",
+            &tab("active", "default"),
+            PageSnapshot {
+                title: "搜索结果".into(),
+                url: "https://search.bilibili.com/all?keyword=配队".into(),
+                text: "候选视频".into(),
+                links: vec![],
+                login_challenge: false,
+                challenge_reason: None,
+                truncated: false,
+                structure: None,
+                snapshot_generation: None,
+                page_fingerprint: None,
+                interactive_total: 0,
+                shadow_root_count: 0,
+            },
+        );
+
+        assert!(result.content.contains("只能用于发现候选视频"));
+        assert!(result.content.contains("research_bilibili"));
+        assert!(result
+            .content
+            .contains("不能把搜索页或详情 DOM 当作最终证据"));
+    }
 }

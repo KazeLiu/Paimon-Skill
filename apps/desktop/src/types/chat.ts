@@ -12,13 +12,26 @@ export interface Message {
   role: string;
   content: string;
   attachments?: ChatAttachment[];
-  status?: "streaming" | "error";
+  runId?: string | null;
+  status?: "streaming" | "error" | "cancelled";
   error?: string;
   retryable?: boolean;
   retryMessageId?: string;
   retryContent?: string;
   retryAttachments?: ChatAttachment[];
+  segments?: AssistantSegment[];
   createdAt: string;
+}
+
+export interface AssistantSegment {
+  id: string;
+  kind: "text" | "tool";
+  content: string;
+  toolName?: string | null;
+  status?: string | null;
+  details?: string | null;
+  url?: string | null;
+  platform?: string | null;
 }
 
 export interface ChatAttachment {
@@ -37,6 +50,7 @@ export interface FailedRunState {
   attachments: ChatAttachment[];
   partialContent: string;
   error: string;
+  runId?: string;
 }
 
 export interface SendMessageResult {
@@ -46,13 +60,14 @@ export interface SendMessageResult {
 }
 
 export interface ChatEvent {
-  kind: "message_delta" | "assistant_finished" | "run_failed" | "run_cancelled";
+  kind: "message_delta" | "assistant_finished" | "run_retrying" | "run_failed" | "run_cancelled";
   runId: string;
   conversationId: string;
   delta: string | null;
   finalContent?: string | null;
   messageId: string | null;
   error: string | null;
+  segments?: AssistantSegment[] | null;
 }
 
 export interface SourceRecord {
@@ -109,4 +124,19 @@ export interface ToolActivity {
   status: string;
   createdAt?: string;
   details?: string;
+  callId?: string;
+  url?: string;
+  platform?: string;
+}
+
+export interface ConversationStep {
+  id: string;
+  runId: string;
+  kind: "tool" | "source";
+  title: string;
+  status: string;
+  timestamp: string;
+  details?: string;
+  url?: string;
+  platform?: string;
 }

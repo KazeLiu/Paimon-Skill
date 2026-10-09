@@ -15,6 +15,7 @@ pub struct TauriBrowserExecutor<'a> {
     app: &'a AppHandle,
     opened_tab_id: Mutex<Option<String>>,
     initial_temporary_ids: HashSet<String>,
+    workflow_details: Option<serde_json::Value>,
 }
 
 impl<'a> TauriBrowserExecutor<'a> {
@@ -27,7 +28,27 @@ impl<'a> TauriBrowserExecutor<'a> {
                 .temporary_ids()
                 .into_iter()
                 .collect(),
+            workflow_details: None,
         }
+    }
+
+    pub fn new_bilibili(app: &'a AppHandle, rank: usize) -> Self {
+        let mut executor = Self::new(app);
+        executor.workflow_details = Some(json!({
+            "rank": rank,
+        }));
+        executor
+    }
+}
+
+fn workflow_phase(action: ResearchAction) -> Option<&'static str> {
+    match action {
+        ResearchAction::OpenPage => Some("detail_opened"),
+        ResearchAction::ExtractComments => Some("comments"),
+        ResearchAction::ExtractBilibiliSubtitles => Some("subtitles"),
+        ResearchAction::ExtractBilibiliKeyframes => Some("keyframes"),
+        ResearchAction::ClosePage => Some("page_closed"),
+        _ => None,
     }
 }
 
@@ -38,6 +59,19 @@ impl ResearchToolExecutor for TauriBrowserExecutor<'_> {
         request: ResearchActionRequest,
     ) -> Result<Option<ResearchArtifact>, ResearchError> {
         let action = request.action;
+        let workflow_phase = self
+            .workflow_details
+            .as_ref()
+            .and_then(|_| workflow_phase(action));
+        if let (Some(phase), Some(details)) = (workflow_phase, self.workflow_details.as_ref()) {
+            crate::commands::append_research_workflow_log(
+                self.app,
+                "info",
+                &format!("{phase}_started"),
+                &format!("B站固定流程开始执行：{phase}"),
+                Some(details.clone()),
+            );
+        }
         let (tool_name, arguments) = match action {
             ResearchAction::OpenPage => (
                 "browser_open_page",
@@ -78,8 +112,41 @@ impl ResearchToolExecutor for TauriBrowserExecutor<'_> {
             &serde_json::to_string(&arguments)
                 .map_err(|error| ResearchError::new("serialize_action", error.to_string()))?,
         )
-        .await
-        .map_err(|error| ResearchError::new("browser_tool", error))?;
+        .await;
+        let result = match result {
+            Ok(result) => {
+                if let (Some(phase), Some(details)) =
+                    (workflow_phase, self.workflow_details.as_ref())
+                {
+                    crate::commands::append_research_workflow_log(
+                        self.app,
+                        "info",
+                        &format!("{phase}_finished"),
+                        &format!("B站固定流程执行完成：{phase}"),
+                        Some(details.clone()),
+                    );
+                }
+                result
+            }
+            Err(error) => {
+                if let (Some(phase), Some(details)) =
+                    (workflow_phase, self.workflow_details.as_ref())
+                {
+                    let mut details = details.clone();
+                    if let Some(object) = details.as_object_mut() {
+                        object.insert("error".into(), serde_json::Value::String(error.clone()));
+                    }
+                    crate::commands::append_research_workflow_log(
+                        self.app,
+                        "error",
+                        &format!("{phase}_failed"),
+                        &format!("B站固定流程执行失败：{phase}"),
+                        Some(details),
+                    );
+                }
+                return Err(ResearchError::new("browser_tool", error));
+            }
+        };
 
         let tab_id = result
             .metadata

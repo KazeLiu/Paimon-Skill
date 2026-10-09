@@ -4,6 +4,7 @@ use chrono::Utc;
 use rusqlite::{params, Connection};
 use uuid::Uuid;
 
+use crate::agent::runtime::AssistantSegment;
 use crate::attachments::ChatAttachment;
 use crate::tools::registry::ToolResult;
 
@@ -45,9 +46,11 @@ impl ChatRepository {
                     id TEXT PRIMARY KEY,
                     conversation_id TEXT NOT NULL,
                     role TEXT NOT NULL,
-                    content TEXT NOT NULL,
-                    attachments_json TEXT NOT NULL DEFAULT '[]',
-                    created_at TEXT NOT NULL,
+                     content TEXT NOT NULL,
+                     attachments_json TEXT NOT NULL DEFAULT '[]',
+                     run_id TEXT,
+                     segments_json TEXT NOT NULL DEFAULT '[]',
+                     created_at TEXT NOT NULL,
                     FOREIGN KEY(conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
                  );
                  CREATE INDEX IF NOT EXISTS idx_messages_conversation_created
@@ -105,6 +108,45 @@ impl ChatRepository {
                     [],
                 )
                 .map_err(|error| format!("无法迁移消息附件字段：{error}"))?;
+        }
+        let has_run_id = {
+            let mut statement = connection
+                .prepare("PRAGMA table_info(messages)")
+                .map_err(|error| format!("无法检查消息表结构：{error}"))?;
+            let columns = statement
+                .query_map([], |row| row.get::<_, String>(1))
+                .map_err(|error| format!("无法读取消息表结构：{error}"))?;
+            columns
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|error| format!("无法解析消息表结构：{error}"))?
+                .iter()
+                .any(|column| column == "run_id")
+        };
+        if !has_run_id {
+            connection
+                .execute("ALTER TABLE messages ADD COLUMN run_id TEXT", [])
+                .map_err(|error| format!("无法迁移消息运行字段：{error}"))?;
+        }
+        let has_segments = {
+            let mut statement = connection
+                .prepare("PRAGMA table_info(messages)")
+                .map_err(|error| format!("无法检查消息表结构：{error}"))?;
+            let columns = statement
+                .query_map([], |row| row.get::<_, String>(1))
+                .map_err(|error| format!("无法读取消息表结构：{error}"))?;
+            columns
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|error| format!("无法解析消息表结构：{error}"))?
+                .iter()
+                .any(|column| column == "segments_json")
+        };
+        if !has_segments {
+            connection
+                .execute(
+                    "ALTER TABLE messages ADD COLUMN segments_json TEXT NOT NULL DEFAULT '[]'",
+                    [],
+                )
+                .map_err(|error| format!("无法迁移消息分段字段：{error}"))?;
         }
         Ok(())
     }
@@ -184,6 +226,7 @@ impl ChatRepository {
             .ok_or_else(|| "无法读取更新后的对话".to_string())
     }
 
+    #[allow(dead_code)]
     pub fn add_message(
         &self,
         conversation_id: &str,
@@ -200,6 +243,29 @@ impl ChatRepository {
         content: &str,
         attachments: &[ChatAttachment],
     ) -> Result<Message, String> {
+        self.add_message_with_run(conversation_id, role, content, attachments, None)
+    }
+
+    pub fn add_message_with_run(
+        &self,
+        conversation_id: &str,
+        role: &str,
+        content: &str,
+        attachments: &[ChatAttachment],
+        run_id: Option<&str>,
+    ) -> Result<Message, String> {
+        self.add_message_with_segments(conversation_id, role, content, attachments, run_id, &[])
+    }
+
+    pub fn add_message_with_segments(
+        &self,
+        conversation_id: &str,
+        role: &str,
+        content: &str,
+        attachments: &[ChatAttachment],
+        run_id: Option<&str>,
+        segments: &[AssistantSegment],
+    ) -> Result<Message, String> {
         let mut connection = self.connection()?;
         let transaction = connection
             .transaction()
@@ -211,20 +277,26 @@ impl ChatRepository {
             role: role.to_owned(),
             content: content.to_owned(),
             attachments: attachments.to_vec(),
+            run_id: run_id.map(str::to_owned),
+            segments: segments.to_vec(),
             created_at: now.clone(),
         };
         let attachments_json = serde_json::to_string(&message.attachments)
             .map_err(|error| format!("无法序列化消息附件：{error}"))?;
+        let segments_json = serde_json::to_string(&message.segments)
+            .map_err(|error| format!("无法序列化消息分段：{error}"))?;
         transaction
             .execute(
-                "INSERT INTO messages (id, conversation_id, role, content, attachments_json, created_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                "INSERT INTO messages (id, conversation_id, role, content, attachments_json, run_id, segments_json, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
                 params![
                     message.id,
                     message.conversation_id,
                     message.role,
                     message.content,
                     attachments_json,
+                    message.run_id,
+                    segments_json,
                     message.created_at
                 ],
             )
@@ -245,7 +317,7 @@ impl ChatRepository {
         let connection = self.connection()?;
         let mut statement = connection
             .prepare(
-                "SELECT id, conversation_id, role, content, attachments_json, created_at
+                "SELECT id, conversation_id, role, content, attachments_json, run_id, segments_json, created_at
                  FROM messages WHERE conversation_id = ?1 ORDER BY created_at ASC",
             )
             .map_err(|error| format!("无法读取消息：{error}"))?;
@@ -257,21 +329,35 @@ impl ChatRepository {
                     row.get::<_, String>(2)?,
                     row.get::<_, String>(3)?,
                     row.get::<_, String>(4)?,
-                    row.get::<_, String>(5)?,
+                    row.get::<_, Option<String>>(5)?,
+                    row.get::<_, String>(6)?,
+                    row.get::<_, String>(7)?,
                 ))
             })
             .map_err(|error| format!("无法查询消息：{error}"))?;
         rows.map(|row| {
-            let (id, conversation_id, role, content, attachments_json, created_at) =
-                row.map_err(|error| format!("无法解析消息：{error}"))?;
+            let (
+                id,
+                conversation_id,
+                role,
+                content,
+                attachments_json,
+                run_id,
+                segments_json,
+                created_at,
+            ) = row.map_err(|error| format!("无法解析消息：{error}"))?;
             let attachments = serde_json::from_str(&attachments_json)
                 .map_err(|error| format!("消息附件数据已损坏：{error}"))?;
+            let segments = serde_json::from_str(&segments_json)
+                .map_err(|error| format!("消息分段数据已损坏：{error}"))?;
             Ok(Message {
                 id,
                 conversation_id,
                 role,
                 content,
                 attachments,
+                run_id,
+                segments,
                 created_at,
             })
         })

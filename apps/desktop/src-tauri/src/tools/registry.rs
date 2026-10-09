@@ -64,7 +64,7 @@ pub async fn execute(client: &Client, name: &str, arguments: &str) -> Result<Too
                 .ok_or_else(|| "read_url 缺少 url".to_string())?;
             if crate::agent::research::requires_browser_session(url) {
                 return Err(
-                    "社交平台页面必须使用 browser_open_page，以便读取动态详情、登录态和评论".into(),
+                    "社交平台页面不能使用 read_url：请先用 browser_open_page 打开页面；B站搜索必须调用 research_bilibili，由固定流程读取评论和字幕并关闭临时网页，不能把 B站详情 DOM 当作最终证据".into(),
                 );
             }
             static_page::read_url(client, url, "web_page", "网页").await?
@@ -101,7 +101,7 @@ mod tests {
     #[test]
     fn exposes_only_read_only_tools_with_required_arguments() {
         let definitions = definitions();
-        assert_eq!(definitions.len(), 12);
+        assert_eq!(definitions.len(), 13);
         assert_eq!(definitions[0].function.name, "read_url");
         assert_eq!(definitions[1].function.parameters["required"][0], "query");
         assert!(definitions

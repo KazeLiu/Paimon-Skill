@@ -21,6 +21,7 @@ const NO_SUBTITLE_WARNING: &str = "当前视频未取得可读取字幕，已跳
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(not(test), allow(dead_code))]
 pub struct BilibiliVideoInfo {
     pub video_id: String,
     pub aid: Option<u64>,
@@ -44,6 +45,7 @@ pub struct SubtitleSegment {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(not(test), allow(dead_code))]
 pub struct SubtitleTrack {
     pub language: Option<String>,
     pub segments: Vec<SubtitleSegment>,
@@ -93,7 +95,8 @@ struct BrowserSubtitleTrack {
     language: String,
     language_label: String,
     part_index: u32,
-    part_id: String,
+    #[serde(rename = "partId")]
+    _part_id: String,
     part_title: String,
     segments: Vec<BrowserSubtitleSegment>,
 }
@@ -151,6 +154,7 @@ pub fn normalize_bilibili_video_url(raw: &str) -> Result<Url, ResearchError> {
     Ok(url)
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn parse_video_info(
     text: &str,
     fallback_url: &str,
@@ -183,6 +187,7 @@ pub fn parse_video_info(
     })
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 fn parse_duration_seconds(value: String) -> Option<u64> {
     if let Some(seconds) = value
         .strip_prefix('(')
@@ -212,6 +217,7 @@ fn parse_duration_seconds(value: String) -> Option<u64> {
     }
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn parse_subtitle_json(value: &str) -> Result<SubtitleTrack, ResearchError> {
     #[derive(Deserialize)]
     struct RawBody {
@@ -254,6 +260,7 @@ pub fn parse_subtitle_json(value: &str) -> Result<SubtitleTrack, ResearchError> 
     })
 }
 
+#[allow(dead_code)]
 fn add_info_metadata(artifact: &mut ResearchArtifact, info: &BilibiliVideoInfo) {
     artifact
         .metadata
@@ -402,6 +409,47 @@ fn transcript_artifact(
     ]);
     if let Some(video) = &payload.video_info {
         metadata.insert("videoId".into(), video.bvid.clone());
+        if let Some(aid) = video.aid {
+            metadata.insert("aid".into(), aid.to_string());
+        }
+        if !video.author.is_empty() {
+            metadata.insert("author".into(), video.author.clone());
+        }
+        if let Some(value) = video.published_at {
+            metadata.insert("publishedAt".into(), value.to_string());
+        }
+        if let Some(value) = video.current_part {
+            metadata.insert("currentPart".into(), value.to_string());
+        }
+        metadata.insert("pageCount".into(), video.pages.len().to_string());
+        metadata.insert(
+            "videoParts".into(),
+            video
+                .pages
+                .iter()
+                .map(|part| format!("P{}:{}:{}", part.page, part.cid, part.part))
+                .collect::<Vec<_>>()
+                .join(" | "),
+        );
+        for (key, value) in [
+            ("durationSeconds", video.duration_seconds),
+            ("views", video.views),
+            ("replies", video.replies),
+        ] {
+            if let Some(value) = value {
+                metadata.insert(key.into(), value.to_string());
+            }
+        }
+        if !video.description.is_empty() {
+            metadata.insert(
+                "description".into(),
+                video
+                    .description
+                    .chars()
+                    .take(MAX_DESCRIPTION_CHARS)
+                    .collect(),
+            );
+        }
     }
     Ok(Some(ResearchArtifact {
         kind: ResearchArtifactKind::Transcript,
@@ -412,55 +460,6 @@ fn transcript_artifact(
         captured_at: raw.captured_at,
         metadata,
     }))
-}
-
-fn apply_browser_video_info(body: &mut ResearchArtifact, info: &BrowserVideoInfo) {
-    body.metadata.insert("videoId".into(), info.bvid.clone());
-    if let Some(aid) = info.aid {
-        body.metadata.insert("aid".into(), aid.to_string());
-    }
-    if !info.author.is_empty() {
-        body.metadata.insert("author".into(), info.author.clone());
-    }
-    if let Some(value) = info.published_at {
-        body.metadata
-            .insert("publishedAt".into(), value.to_string());
-    }
-    if let Some(value) = info.current_part {
-        body.metadata
-            .insert("currentPart".into(), value.to_string());
-    }
-    body.metadata
-        .insert("pageCount".into(), info.pages.len().to_string());
-    body.metadata.insert(
-        "parts".into(),
-        info.pages
-            .iter()
-            .map(|part| format!("P{}:{}:{}", part.page, part.cid, part.part))
-            .collect::<Vec<_>>()
-            .join(" | "),
-    );
-    if !info.title.is_empty() {
-        body.title = info.title.clone();
-    }
-    for (key, value) in [
-        ("durationSeconds", info.duration_seconds),
-        ("views", info.views),
-        ("replies", info.replies),
-    ] {
-        if let Some(value) = value {
-            body.metadata.insert(key.into(), value.to_string());
-        }
-    }
-    if !info.description.is_empty() {
-        body.metadata.insert(
-            "description".into(),
-            info.description
-                .chars()
-                .take(MAX_DESCRIPTION_CHARS)
-                .collect(),
-        );
-    }
 }
 
 fn visual_intent(request: &ResearchRequest) -> bool {
@@ -695,25 +694,39 @@ impl<E: ResearchToolExecutor> BilibiliAdapter<'_, E> {
         if context.cancellation.is_cancelled() {
             return Err(ResearchError::new("cancelled", "研究任务已取消"));
         }
-        let mut scroll =
-            ResearchActionRequest::tab(ResearchAction::ScrollPage, Some(tab_id.to_owned()));
-        scroll.max_scroll_rounds = context.max_scroll_rounds;
-        let _ = self.executor.execute(scroll).await?;
-        let body = self
-            .executor
-            .execute(ResearchActionRequest::tab(
-                ResearchAction::ExtractPage,
-                Some(tab_id.to_owned()),
-            ))
-            .await?;
-        if let Some(mut body) = body {
-            body.kind = ResearchArtifactKind::Body;
-            report.add_artifact(body);
-        }
-
         if context.cancellation.is_cancelled() {
             return Err(ResearchError::new("cancelled", "研究任务已取消"));
         }
+        if request.wants_comments {
+            let mut scroll =
+                ResearchActionRequest::tab(ResearchAction::ScrollPage, Some(tab_id.to_owned()));
+            scroll.max_scroll_rounds = context.max_scroll_rounds.min(4);
+            if let Err(error) = self.executor.execute(scroll).await {
+                report
+                    .warnings
+                    .push(format!("评论区加载滚动失败：{}", error.message));
+            }
+            match self
+                .executor
+                .execute(ResearchActionRequest::tab(
+                    ResearchAction::ExtractComments,
+                    Some(tab_id.to_owned()),
+                ))
+                .await
+            {
+                Ok(Some(mut comments)) => {
+                    comments.kind = ResearchArtifactKind::Comments;
+                    report.add_artifact(comments);
+                }
+                Ok(None) => report.warnings.push("未取得视频评论".into()),
+                Err(error) => report
+                    .warnings
+                    .push(format!("视频评论读取失败：{}", error.message)),
+            }
+        }
+
+        // The fixed B站 workflow reads comments before subtitles. Subtitle access is
+        // still attempted for every detail page, including when comments are blocked.
         match self
             .executor
             .execute(ResearchActionRequest::bilibili_subtitles(
@@ -724,8 +737,9 @@ impl<E: ResearchToolExecutor> BilibiliAdapter<'_, E> {
         {
             Ok(Some(raw)) => match parse_browser_payload(&raw.content) {
                 Ok(payload) => {
-                    if let (Some(body), Some(info)) = (report.body.as_mut(), &payload.video_info) {
-                        apply_browser_video_info(body, info);
+                    if let Some(info) = &payload.video_info {
+                        report.title = info.title.clone();
+                        report.url = request.url.clone();
                     }
                     if let Some(transcript) = transcript_artifact(raw, &payload)? {
                         report.add_artifact(transcript);
@@ -751,31 +765,8 @@ impl<E: ResearchToolExecutor> BilibiliAdapter<'_, E> {
                 report.warnings.push(NO_SUBTITLE_WARNING.into());
             }
         }
-
-        if request.wants_comments {
-            match self
-                .executor
-                .execute(ResearchActionRequest::tab(
-                    ResearchAction::ExtractComments,
-                    Some(tab_id.to_owned()),
-                ))
-                .await
-            {
-                Ok(Some(mut comments)) => {
-                    comments.kind = ResearchArtifactKind::Comments;
-                    report.add_artifact(comments);
-                }
-                Ok(None) => report.warnings.push("未取得视频评论".into()),
-                Err(error) => report
-                    .warnings
-                    .push(format!("视频评论读取失败：{}", error.message)),
-            }
-        }
         if let Some(visual) = visual.filter(|_| visual_intent(request)) {
             run_keyframe_visual(self.executor, visual, tab_id, request, report).await?;
-        }
-        if report.body.is_none() {
-            report.warnings.push("未取得视频详情正文".into());
         }
         Ok(())
     }
@@ -933,8 +924,6 @@ mod tests {
             calls: Mutex::new(Vec::new()),
             results: Mutex::new(VecDeque::from([
                 Ok(Some(artifact(ResearchArtifactKind::Body, "打开", true))),
-                Ok(Some(artifact(ResearchArtifactKind::Body, "滚动", false))),
-                Ok(Some(artifact(ResearchArtifactKind::Body, "正文", false))),
                 Ok(Some(artifact(
                     ResearchArtifactKind::Transcript,
                     payload,
@@ -962,18 +951,19 @@ mod tests {
             .iter()
             .any(|warning| warning == NO_SUBTITLE_WARNING));
         let calls = fake.calls.lock().unwrap();
-        assert_eq!(calls[3].action, ResearchAction::ExtractBilibiliSubtitles);
+        assert_eq!(calls[1].action, ResearchAction::ExtractBilibiliSubtitles);
         assert_eq!(calls.last().unwrap().action, ResearchAction::ClosePage);
+        assert!(!calls
+            .iter()
+            .any(|call| call.action == ResearchAction::ExtractPage));
     }
 
     #[tokio::test]
-    async fn subtitle_failure_keeps_body_and_still_closes_page() {
+    async fn subtitle_failure_degrades_and_still_closes_page() {
         let fake = FakeExecutor {
             calls: Mutex::new(Vec::new()),
             results: Mutex::new(VecDeque::from([
                 Ok(Some(artifact(ResearchArtifactKind::Body, "打开", true))),
-                Ok(Some(artifact(ResearchArtifactKind::Body, "滚动", false))),
-                Ok(Some(artifact(ResearchArtifactKind::Body, "正文", false))),
                 Err(ResearchError::new("subtitle_eval", "页面变化")),
                 Ok(None),
             ])),
@@ -991,7 +981,7 @@ mod tests {
             )
             .await
             .unwrap();
-        assert!(report.body.is_some());
+        assert!(report.body.is_none());
         assert!(report
             .warnings
             .iter()
@@ -1003,13 +993,52 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn plain_summary_does_not_extract_keyframes_or_call_visual() {
+    async fn fixed_video_flow_reads_comments_before_subtitles() {
         let fake = FakeExecutor {
             calls: Mutex::new(Vec::new()),
             results: Mutex::new(VecDeque::from([
                 Ok(Some(artifact(ResearchArtifactKind::Body, "打开", true))),
                 Ok(Some(artifact(ResearchArtifactKind::Body, "滚动", false))),
-                Ok(Some(artifact(ResearchArtifactKind::Body, "正文", false))),
+                Ok(Some(artifact(
+                    ResearchArtifactKind::Comments,
+                    "评论",
+                    false,
+                ))),
+                Ok(Some(subtitle_payload())),
+                Ok(None),
+            ])),
+        };
+        let report = BilibiliAdapter::new(&fake)
+            .research(
+                ResearchRequest {
+                    source_id: Some("bilibili-video".into()),
+                    url: "https://www.bilibili.com/video/BV1GY4y1U7oq".into(),
+                    query: "配队".into(),
+                    wants_comments: true,
+                    wants_visual: false,
+                },
+                ResearchContext::default(),
+            )
+            .await
+            .unwrap();
+        assert!(report.comments.is_some());
+        assert!(report.transcript.is_some());
+        let calls = fake.calls.lock().unwrap();
+        assert_eq!(calls[1].action, ResearchAction::ScrollPage);
+        assert_eq!(calls[2].action, ResearchAction::ExtractComments);
+        assert_eq!(calls[3].action, ResearchAction::ExtractBilibiliSubtitles);
+        assert_eq!(calls[4].action, ResearchAction::ClosePage);
+        assert!(!calls
+            .iter()
+            .any(|call| call.action == ResearchAction::ExtractPage));
+    }
+
+    #[tokio::test]
+    async fn plain_summary_does_not_extract_keyframes_or_call_visual() {
+        let fake = FakeExecutor {
+            calls: Mutex::new(Vec::new()),
+            results: Mutex::new(VecDeque::from([
+                Ok(Some(artifact(ResearchArtifactKind::Body, "打开", true))),
                 Ok(Some(subtitle_payload())),
                 Ok(None),
             ])),
@@ -1047,8 +1076,6 @@ mod tests {
             calls: Mutex::new(Vec::new()),
             results: Mutex::new(VecDeque::from([
                 Ok(Some(artifact(ResearchArtifactKind::Body, "打开", true))),
-                Ok(Some(artifact(ResearchArtifactKind::Body, "滚动", false))),
-                Ok(Some(artifact(ResearchArtifactKind::Body, "正文", false))),
                 Ok(Some(subtitle_payload())),
                 Ok(Some(keyframe_payload())),
                 Ok(None),
@@ -1071,7 +1098,7 @@ mod tests {
             )
             .await
             .unwrap();
-        assert!(report.body.is_some());
+        assert!(report.body.is_none());
         assert!(report.transcript.is_some());
         assert_eq!(
             report.visual.as_ref().unwrap().kind,

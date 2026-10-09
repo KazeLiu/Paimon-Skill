@@ -8,6 +8,7 @@ export interface ProviderConfig {
   streaming: boolean;
   toolCalling: boolean;
   enabled: boolean;
+  isDefault?: boolean;
 }
 
 export interface ProviderView {
@@ -35,6 +36,7 @@ export interface CapabilityDiagnostic {
   responseBody: string;
   parseError: string | null;
   truncated: boolean;
+  requestBody: string;
 }
 
 export interface CapabilityReport {

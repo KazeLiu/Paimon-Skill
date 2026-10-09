@@ -1,6 +1,7 @@
 use futures_util::StreamExt;
 use reqwest::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE};
 use serde_json::Value;
+use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::diagnostics::redact_sensitive_text;
@@ -12,6 +13,10 @@ use super::models::{
 
 const MAX_DIAGNOSTIC_BODY: usize = 8_192;
 const MAX_ERROR_MESSAGE: usize = 1_024;
+
+fn provider_timeout(provider: &ProviderConfig) -> std::time::Duration {
+    std::time::Duration::from_millis(provider.timeout_ms)
+}
 pub const CONNECTION_TEST_PROMPT: &str = "帮我看看今天的原神的卡池是什么";
 
 #[derive(Debug)]
@@ -34,6 +39,7 @@ impl From<String> for DiagnosticError {
                 response_body: String::new(),
                 parse_error: Some(message),
                 truncated: false,
+                request_body: String::new(),
             },
         }
     }
@@ -87,6 +93,34 @@ fn safe_endpoint(endpoint: &str) -> String {
     redact_sensitive_text(endpoint)
 }
 
+fn describe_request_error(error: &reqwest::Error, endpoint: &str) -> String {
+    let kind = if error.is_timeout() {
+        "timeout"
+    } else if error.is_connect() {
+        "connect"
+    } else if error.is_request() {
+        "request"
+    } else {
+        "transport"
+    };
+    format!(
+        "模型请求未收到 HTTP 响应（kind={kind}, endpoint={}）：{}",
+        safe_endpoint(endpoint),
+        format_error_chain(error)
+    )
+}
+
+fn format_error_chain(error: &reqwest::Error) -> String {
+    let mut output = error.to_string();
+    let mut source = std::error::Error::source(error);
+    while let Some(error) = source {
+        output.push_str(" <- ");
+        output.push_str(&error.to_string());
+        source = error.source();
+    }
+    bounded_error_message(&output)
+}
+
 pub fn diagnostic_for_invalid_json(
     endpoint: &str,
     http_status: u16,
@@ -105,6 +139,7 @@ pub fn diagnostic_for_invalid_json(
         response_body,
         parse_error: Some(bounded_error_message(parse_error)),
         truncated,
+        request_body: String::new(),
     }
 }
 
@@ -131,6 +166,7 @@ fn diagnostic_error(
             response_body,
             parse_error,
             truncated,
+            request_body: String::new(),
         },
     }
 }
@@ -157,6 +193,7 @@ fn diagnostic_error_from_parts(
             response_body,
             parse_error,
             truncated,
+            request_body: String::new(),
         },
     }
 }
@@ -164,6 +201,7 @@ fn diagnostic_error_from_parts(
 #[derive(Clone)]
 pub struct OpenAiCompatibleClient {
     http: reqwest::Client,
+    diagnostics: Arc<Mutex<Vec<CapabilityDiagnostic>>>,
 }
 
 impl OpenAiCompatibleClient {
@@ -172,7 +210,38 @@ impl OpenAiCompatibleClient {
             .user_agent("PaimonDesktop/0.1")
             .build()
             .map_err(|error| format!("无法创建模型 HTTP 客户端：{error}"))?;
-        Ok(Self { http })
+        Ok(Self {
+            http,
+            diagnostics: Arc::new(Mutex::new(Vec::new())),
+        })
+    }
+
+    pub fn take_diagnostics(&self) -> Vec<CapabilityDiagnostic> {
+        self.diagnostics
+            .lock()
+            .map(|mut diagnostics| std::mem::take(&mut *diagnostics))
+            .unwrap_or_default()
+    }
+
+    fn record_diagnostic(&self, diagnostic: CapabilityDiagnostic) {
+        if let Ok(mut diagnostics) = self.diagnostics.lock() {
+            diagnostics.push(diagnostic);
+        }
+    }
+
+    fn attach_request_body(error: &mut DiagnosticError, body: &Value) {
+        let sanitized = crate::diagnostics::sanitize_json(body.clone());
+        let serialized = serde_json::to_string(&sanitized).unwrap_or_else(|_| "{}".into());
+        error.diagnostic.request_body = bounded_body(&serialized).0;
+    }
+
+    fn finish_diagnostic_error(
+        &self,
+        mut error: DiagnosticError,
+        request_body: Value,
+    ) -> DiagnosticError {
+        Self::attach_request_body(&mut error, &request_body);
+        error
     }
 
     pub async fn test_capabilities(
@@ -190,7 +259,18 @@ impl OpenAiCompatibleClient {
             .await
         {
             Ok(_) => CapabilityStatus::ok("基础请求成功"),
-            Err(error) => CapabilityStatus::failed_with(error.message, error.diagnostic),
+            Err(error) => {
+                let error = self.finish_diagnostic_error(
+                    error,
+                    request_body_for_provider(
+                        provider,
+                        &[ChatMessage::user(CONNECTION_TEST_PROMPT)],
+                        &[],
+                        false,
+                    ),
+                );
+                CapabilityStatus::failed_with(error.message, error.diagnostic)
+            }
         };
 
         CapabilityReport { basic_request }
@@ -208,7 +288,7 @@ impl OpenAiCompatibleClient {
             .header(AUTHORIZATION, format!("Bearer {api_key}"))
             .header("x-api-key", api_key)
             .header(ACCEPT, "application/json")
-            .timeout(std::time::Duration::from_millis(provider.timeout_ms))
+            .timeout(provider_timeout(provider))
             .send()
             .await
             .map_err(|error| format!("获取模型列表失败：{error}"))?;
@@ -236,9 +316,20 @@ impl OpenAiCompatibleClient {
         messages: &[ChatMessage],
         tools: &[ToolDefinition],
     ) -> Result<CompletionResult, String> {
-        self.complete_with_diagnostic(provider, api_key, messages, tools)
+        match self
+            .complete_with_diagnostic(provider, api_key, messages, tools)
             .await
-            .map_err(|error| error.message)
+        {
+            Ok(result) => Ok(result),
+            Err(error) => {
+                let error = self.finish_diagnostic_error(
+                    error,
+                    request_body_for_provider(provider, messages, tools, false),
+                );
+                self.record_diagnostic(error.diagnostic);
+                Err(error.message)
+            }
+        }
     }
 
     async fn complete_with_diagnostic(
@@ -257,7 +348,7 @@ impl OpenAiCompatibleClient {
             .header("x-api-key", api_key)
             .header(CONTENT_TYPE, "application/json")
             .header(ACCEPT, "application/json")
-            .timeout(std::time::Duration::from_millis(provider.timeout_ms))
+            .timeout(provider_timeout(provider))
             .json(&body)
             .send()
             .await
@@ -267,7 +358,7 @@ impl OpenAiCompatibleClient {
                     &url,
                     None,
                     "",
-                    Some(format!("模型请求失败：{error}")),
+                    Some(describe_request_error(&error, &url)),
                 )
             })?;
         let status = response.status();
@@ -338,9 +429,20 @@ impl OpenAiCompatibleClient {
         tools: &[ToolDefinition],
         sender: &UnboundedSender<StreamEvent>,
     ) -> Result<(), String> {
-        self.stream_with_diagnostic(provider, api_key, messages, tools, sender)
+        match self
+            .stream_with_diagnostic(provider, api_key, messages, tools, sender)
             .await
-            .map_err(|error| error.message)
+        {
+            Ok(()) => Ok(()),
+            Err(error) => {
+                let error = self.finish_diagnostic_error(
+                    error,
+                    request_body_for_provider(provider, messages, tools, true),
+                );
+                self.record_diagnostic(error.diagnostic);
+                Err(error.message)
+            }
+        }
     }
 
     async fn stream_with_diagnostic(
@@ -360,7 +462,7 @@ impl OpenAiCompatibleClient {
             .header("x-api-key", api_key)
             .header(CONTENT_TYPE, "application/json")
             .header(ACCEPT, "text/event-stream")
-            .timeout(std::time::Duration::from_millis(provider.timeout_ms))
+            .timeout(provider_timeout(provider))
             .json(&body)
             .send()
             .await
@@ -370,7 +472,7 @@ impl OpenAiCompatibleClient {
                     &url,
                     None,
                     "",
-                    Some(format!("模型流式请求失败：{error}")),
+                    Some(describe_request_error(&error, &url)),
                 )
             })?;
         let status = response.status();
@@ -531,6 +633,7 @@ mod tests {
             streaming: true,
             tool_calling: true,
             enabled: true,
+            is_default: false,
         }
     }
 
@@ -636,5 +739,51 @@ mod tests {
         assert!(!error.message.contains("upstream-secret"));
         assert!(error.message.contains("[REDACTED]"));
         assert!(error.message.chars().count() <= MAX_ERROR_MESSAGE + 1);
+    }
+
+    #[tokio::test]
+    async fn connection_failures_record_a_classified_error_chain_and_request_body() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        drop(listener);
+
+        let client = OpenAiCompatibleClient::new().unwrap();
+        let (sender, _receiver) = tokio::sync::mpsc::unbounded_channel();
+        let sensitive_tool = ToolDefinition {
+            r#type: "function".into(),
+            function: super::super::models::ToolFunction {
+                name: "read_url".into(),
+                description: "Read a page".into(),
+                parameters: serde_json::json!({
+                    "type": "object",
+                    "properties": { "apiKey": { "type": "string", "default": "client-secret" } }
+                }),
+            },
+        };
+        let error = client
+            .stream(
+                &provider(format!("http://{address}/v1")),
+                "client-secret",
+                &[ChatMessage::user("request content")],
+                &[sensitive_tool],
+                &sender,
+            )
+            .await
+            .unwrap_err();
+
+        assert!(error.contains("未收到 HTTP 响应"));
+        assert!(
+            error.contains("kind=connect") || error.contains("kind=timeout"),
+            "unexpected request error: {error}"
+        );
+        assert!(!error.contains("client-secret"));
+
+        let diagnostic = client.take_diagnostics().pop().unwrap();
+        assert_eq!(diagnostic.stage, "request");
+        assert_eq!(diagnostic.http_status, None);
+        let parse_error = diagnostic.parse_error.unwrap();
+        assert!(parse_error.contains("kind=connect") || parse_error.contains("kind=timeout"));
+        assert!(diagnostic.request_body.contains("request content"));
+        assert!(!diagnostic.request_body.contains("client-secret"));
     }
 }

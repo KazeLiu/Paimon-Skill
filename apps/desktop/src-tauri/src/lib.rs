@@ -1,3 +1,5 @@
+#![allow(linker_messages)]
+
 mod agent;
 mod attachments;
 mod browser;
@@ -29,6 +31,8 @@ pub fn run() {
             commands::test_provider,
             commands::list_provider_models,
             commands::list_logs,
+            commands::get_diagnostics_settings,
+            commands::set_diagnostics_settings,
             commands::clear_logs,
             commands::export_logs,
             commands::list_conversations,

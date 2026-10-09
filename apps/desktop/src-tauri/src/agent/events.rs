@@ -1,5 +1,7 @@
 use serde::Serialize;
 
+use super::runtime::AssistantSegment;
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatEvent {
@@ -10,6 +12,7 @@ pub struct ChatEvent {
     pub final_content: Option<String>,
     pub message_id: Option<String>,
     pub error: Option<String>,
+    pub segments: Option<Vec<AssistantSegment>>,
 }
 
 impl ChatEvent {
@@ -22,6 +25,7 @@ impl ChatEvent {
             final_content: None,
             message_id: None,
             error: None,
+            segments: None,
         }
     }
 
@@ -30,6 +34,7 @@ impl ChatEvent {
         conversation_id: &str,
         message_id: String,
         final_content: String,
+        segments: Vec<AssistantSegment>,
     ) -> Self {
         Self {
             kind: "assistant_finished".into(),
@@ -39,6 +44,20 @@ impl ChatEvent {
             final_content: Some(final_content),
             message_id: Some(message_id),
             error: None,
+            segments: Some(segments),
+        }
+    }
+
+    pub fn retrying(run_id: &str, conversation_id: &str, attempt: u8, error: String) -> Self {
+        Self {
+            kind: "run_retrying".into(),
+            run_id: run_id.into(),
+            conversation_id: conversation_id.into(),
+            delta: Some(attempt.to_string()),
+            final_content: None,
+            message_id: None,
+            error: Some(error),
+            segments: None,
         }
     }
 
@@ -51,6 +70,7 @@ impl ChatEvent {
             final_content: None,
             message_id: None,
             error: Some(error),
+            segments: None,
         }
     }
 
@@ -63,6 +83,7 @@ impl ChatEvent {
             final_content: None,
             message_id: None,
             error: None,
+            segments: None,
         }
     }
 }

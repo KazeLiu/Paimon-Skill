@@ -2,7 +2,7 @@ import { createPinia, setActivePinia } from "pinia";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useChatStore } from "./chatStore";
-import { deleteConversation, listConversations, listMessages, listSources, listToolRuns, sendMessage } from "@/api/chat";
+import { cancelRun, deleteConversation, listConversations, listMessages, listSources, listToolRuns, sendMessage } from "@/api/chat";
 import { listProviders } from "@/api/providers";
 
 const eventApi = vi.hoisted(() => ({
@@ -183,6 +183,45 @@ describe("chatStore", () => {
     expect(store.sending).toBe(false);
   });
 
+  it("resets only the current assistant segment when the backend retries", async () => {
+    vi.mocked(sendMessage).mockResolvedValue({
+      runId: "run-1",
+      conversation: { id: "c1", title: "测试", providerId: "deepseek", createdAt: "1", updatedAt: "1" },
+      userMessage: { id: "m1", conversationId: "c1", role: "user", content: "第一问", createdAt: "1" },
+    });
+    const store = useChatStore();
+    await store.initialize();
+    await store.send("第一问");
+    store.handleEvent({ kind: "message_delta", runId: "run-1", conversationId: "c1", delta: "半截", messageId: null, error: null });
+    store.handleEvent({ kind: "run_retrying", runId: "run-1", conversationId: "c1", delta: "2", messageId: null, error: "HTTP 503" });
+
+    expect(store.messages[0].content).toBe("第一问");
+    expect(store.messages[1]).toMatchObject({ content: "", status: "streaming" });
+    expect(store.sending).toBe(true);
+  });
+
+  it("keeps completed text and tool segments when retrying only the current model turn", async () => {
+    vi.mocked(sendMessage).mockResolvedValue({
+      runId: "run-1",
+      conversation: { id: "c1", title: "测试", providerId: "deepseek", createdAt: "1", updatedAt: "1" },
+      userMessage: { id: "m1", conversationId: "c1", role: "user", content: "研究", createdAt: "1" },
+    });
+    const store = useChatStore();
+    await store.initialize();
+    await store.send("研究");
+    store.handleEvent({ kind: "message_delta", runId: "run-1", conversationId: "c1", delta: "第一段", messageId: null, error: null });
+    store.handleTool({ conversationId: "c1", runId: "run-1", callId: "call-1", toolName: "搜索", status: "running" });
+    store.handleTool({ conversationId: "c1", runId: "run-1", callId: "call-1", toolName: "搜索", status: "completed", details: "完成" });
+    store.handleEvent({ kind: "message_delta", runId: "run-1", conversationId: "c1", delta: "失败的第二段", messageId: null, error: null });
+    store.handleEvent({ kind: "run_retrying", runId: "run-1", conversationId: "c1", delta: "2", messageId: null, error: "HTTP 503" });
+
+    expect(store.messages[1].segments).toEqual([
+      { id: "text-live-1", kind: "text", content: "第一段" },
+      { id: "tool-call-1", kind: "tool", content: "", toolName: "搜索", status: "completed", details: "完成", url: undefined, platform: undefined },
+    ]);
+    expect(store.messages[1].content).toBe("第一段");
+  });
+
   it("keeps an immediate send failure visible and retries it without duplicating the user message", async () => {
     vi.mocked(sendMessage)
       .mockRejectedValueOnce(new Error("所选模型缺少 API Key，请先在设置中保存"))
@@ -313,19 +352,56 @@ describe("chatStore", () => {
     expect(store.sending).toBe(true);
   });
 
-  it("still removes unpersisted assistant content when a run is cancelled", async () => {
+  it("keeps a cancelled reply retryable and clears the retry notice", async () => {
+    vi.mocked(sendMessage)
+      .mockResolvedValueOnce({
+        runId: "run-1",
+        conversation: { id: "c1", title: "测试", providerId: "deepseek", createdAt: "1", updatedAt: "1" },
+        userMessage: { id: "m1", conversationId: "c1", role: "user", content: "你好", createdAt: "1" },
+      })
+      .mockResolvedValueOnce({
+        runId: "run-2",
+        conversation: { id: "c1", title: "测试", providerId: "deepseek", createdAt: "1", updatedAt: "2" },
+        userMessage: { id: "m1", conversationId: "c1", role: "user", content: "你好", createdAt: "1" },
+      });
+    const store = useChatStore();
+    await store.initialize();
+    await store.send("你好");
+    store.handleEvent({ kind: "run_retrying", runId: "run-1", conversationId: "c1", delta: "3", messageId: null, error: "HTTP 503" });
+    store.handleEvent({ kind: "run_cancelled", runId: "run-1", conversationId: "c1", delta: null, messageId: null, error: null });
+
+    expect(store.error).toBe("");
+    expect(store.messages).toHaveLength(2);
+    expect(store.messages[1]).toMatchObject({
+      id: "pending:run-1",
+      status: "cancelled",
+      retryable: true,
+      retryMessageId: "m1",
+    });
+    expect(store.sending).toBe(false);
+
+    await store.retry("pending:run-1");
+
+    expect(sendMessage).toHaveBeenLastCalledWith(expect.objectContaining({ retryMessageId: "m1" }));
+    expect(store.messages.filter((message) => message.role === "user")).toHaveLength(1);
+    expect(store.messages[1]).toMatchObject({ id: "pending:run-2", status: "streaming" });
+  });
+
+  it("ignores retry notices after stop has been requested", async () => {
     vi.mocked(sendMessage).mockResolvedValue({
       runId: "run-1",
       conversation: { id: "c1", title: "测试", providerId: "deepseek", createdAt: "1", updatedAt: "1" },
       userMessage: { id: "m1", conversationId: "c1", role: "user", content: "你好", createdAt: "1" },
     });
+    vi.mocked(cancelRun).mockResolvedValue(true);
     const store = useChatStore();
     await store.initialize();
     await store.send("你好");
-    store.handleEvent({ kind: "run_cancelled", runId: "run-1", conversationId: "c1", delta: null, messageId: null, error: null });
 
-    expect(store.messages.map((message) => message.content)).toEqual(["你好"]);
-    expect(store.sending).toBe(false);
+    await store.cancel();
+    store.handleEvent({ kind: "run_retrying", runId: "run-1", conversationId: "c1", delta: "3", messageId: null, error: "HTTP 503" });
+
+    expect(store.error).toBe("");
   });
 
   it("keeps the active conversation while a request is in flight", async () => {

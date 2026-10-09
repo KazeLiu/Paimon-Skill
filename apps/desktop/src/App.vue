@@ -3,32 +3,28 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { storeToRefs } from "pinia";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import {
-  Bot,
   Check,
   ChevronDown,
   FileText,
   Globe2,
   MessageSquarePlus,
   Paperclip,
-  PanelRightOpen,
-  PanelRightClose,
   Search,
   Send,
   Settings,
-  Sparkles,
   Square,
   Trash2,
   X,
 } from "@lucide/vue";
+import appIconUrl from "../src-tauri/icons/icon.png";
 import PromptSettingsPage from "@/pages/PromptSettingsPage.vue";
 import PrivacySettingsPage from "@/pages/PrivacySettingsPage.vue";
 import ModelSettingsPage from "@/pages/ModelSettingsPage.vue";
 import DiagnosticsSettingsPage from "@/pages/DiagnosticsSettingsPage.vue";
 import MessageList from "@/components/MessageList.vue";
 import SourceDirectoryPage from "@/pages/SourceDirectoryPage.vue";
-import { openBrowserTab } from "@/api/browser";
 import { useChatStore } from "@/stores/chatStore";
-import type { ChatAttachment, ChatSourceEvent, Conversation, ToolActivity, ToolRunRecord } from "@/types/chat";
+import type { ChatAttachment, ChatSourceEvent, Conversation, ConversationStep, ToolActivity } from "@/types/chat";
 
 type ViewId = "chat" | "sources" | "settings";
 type SettingsSection = "models" | "prompts" | "privacy" | "diagnostics";
@@ -41,7 +37,6 @@ const attachmentInput = ref<HTMLInputElement | null>(null);
 const composerError = ref("");
 const conversationError = ref("");
 const conversationSearch = ref("");
-const activityPaneVisible = ref(true);
 const modelMenuOpen = ref(false);
 const modelSelectorRef = ref<HTMLElement | null>(null);
 const chatStore = useChatStore();
@@ -54,8 +49,6 @@ const {
   activeRunId,
   sending,
   error,
-  sources,
-  toolActivities,
   toolRuns,
 } = storeToRefs(chatStore);
 let unlistenSource: UnlistenFn | null = null;
@@ -72,95 +65,24 @@ const filteredConversations = computed(() => {
   return conversations.value.filter((conversation) => conversation.title.toLocaleLowerCase().includes(query));
 });
 
-type ActivityItem = {
-  id: string;
-  kind: "source" | "tool";
-  timestamp: string;
-  title: string;
-  platform?: string;
-  url?: string;
-  status?: string;
-  details?: string;
-  sourceLevel?: string;
-  runId?: string;
-};
-
-type ActivityGroup =
-  | (ActivityItem & { kind: "source"; steps?: undefined })
-  | {
-      id: string;
-      kind: "tool";
-      timestamp: string;
-      title: string;
-      status: string;
-      steps: ActivityItem[];
-    };
-
-const activityItems = computed<ActivityItem[]>(() => {
-  const items: ActivityItem[] = sources.value.map((source) => ({
-    id: `source:${source.url}:${source.capturedAt}`,
-    kind: "source",
-    timestamp: source.capturedAt,
-    title: source.title,
-    platform: source.platform,
-    url: source.url,
-    sourceLevel: source.sourceLevel,
-  }));
-  const persisted = (toolRuns?.value ?? []).map((run: ToolRunRecord) => ({
-    id: `tool:${run.id}`,
-    kind: "tool" as const,
-    timestamp: run.createdAt,
-    title: run.toolName,
-    runId: run.runId,
-    status: run.status,
-    details: run.result?.content || run.error || run.arguments,
-  }));
-  const live = toolActivities.value
-    .filter((activity) => !persisted.some((run) => run.runId === activity.runId && run.title === activity.toolName))
-    .map((activity) => ({
-      id: `tool:${activity.runId}:${activity.toolName}`,
-      kind: "tool" as const,
-      timestamp: activity.createdAt || new Date().toISOString(),
-      title: activity.toolName,
-      status: activity.status,
-      details: activity.details,
-    }));
-  return [...items, ...persisted, ...live].sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp));
-});
-
-const activityGroups = computed<ActivityGroup[]>(() => {
-  const groups: ActivityGroup[] = [];
-  for (const item of activityItems.value) {
-    if (item.kind === "tool") {
-      const previous = groups[groups.length - 1];
-      if (previous?.kind === "tool") {
-        previous.steps.push(item);
-        previous.timestamp = item.timestamp > previous.timestamp ? item.timestamp : previous.timestamp;
-        previous.status = previous.steps.some((step) => step.status === "running")
-          ? "running"
-          : previous.steps.some((step) => step.status === "failed") ? "failed" : "completed";
-        if (previous.title !== item.title) previous.title = "工具流程";
-        continue;
-      }
-      groups.push({
-        id: `workflow:${item.id}`,
-        kind: "tool",
-        timestamp: item.timestamp,
-        title: item.title,
-        status: item.status || "completed",
-        steps: [item],
-      });
-      continue;
-    }
-    groups.push(item as ActivityGroup);
+const legacyStepsByRun = computed<Record<string, ConversationStep[]>>(() => {
+  const grouped: Record<string, ConversationStep[]> = {};
+  for (const run of toolRuns.value) {
+    (grouped[run.runId] ??= []).push({
+      id: `legacy-tool:${run.id}`,
+      runId: run.runId,
+      kind: "tool",
+      title: run.toolName,
+      status: run.status,
+      timestamp: run.createdAt,
+      details: run.result?.content || run.error || undefined,
+      url: run.result?.source?.url,
+      platform: run.result?.source?.platform,
+    });
   }
-  return groups;
+  return grouped;
 });
 
-async function openActivityUrl(url?: string) {
-  if (!url) return;
-  await openBrowserTab(url);
-}
 
 async function send() {
   const content = draft.value.trim();
@@ -327,11 +249,11 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="app-shell" :class="{ 'activity-pane-collapsed': !activityPaneVisible || activeView !== 'chat' }">
+  <div class="app-shell">
     <aside class="conversation-rail" aria-label="对话导航">
       <div class="brand-block">
         <div class="brand-mark" aria-hidden="true">
-          <Sparkles :size="18" />
+          <img :src="appIconUrl" alt="" />
         </div>
         <div>
           <strong>派蒙助手</strong>
@@ -436,23 +358,13 @@ onUnmounted(() => {
               </button>
             </div>
           </div>
-          <button
-            class="icon-button"
-            type="button"
-            :title="activityPaneVisible ? '收起查询面板' : '打开查询面板'"
-            :aria-label="activityPaneVisible ? '收起查询面板' : '打开查询面板'"
-            @click="activityPaneVisible = !activityPaneVisible"
-          >
-            <PanelRightOpen v-if="!activityPaneVisible" :size="18" />
-            <PanelRightClose v-else :size="18" />
-          </button>
         </div>
       </header>
 
       <section v-if="activeView === 'chat'" class="chat-surface">
         <div v-if="messages.length === 0" class="empty-conversation">
           <div class="assistant-avatar" aria-hidden="true">
-            <Bot :size="26" />
+            <img :src="appIconUrl" alt="" />
           </div>
           <h2>你好旅行者，有什么问题吗？</h2>
           <p>我可以帮你查配队，看圣遗物，聊一聊旅途中的故事。</p>
@@ -461,9 +373,11 @@ onUnmounted(() => {
           v-else
           :messages="messages"
           :streaming="Boolean(activeRunId)"
+          :retry-notice="sending ? error : ''"
           :retrying="sending"
           :providers="providers.map((provider) => ({ id: provider.config.id, label: `${provider.config.name} · ${provider.config.model}` }))"
           :selected-provider-id="selectedProviderId"
+          :steps-by-run="legacyStepsByRun"
           @select-provider="selectModel"
           @retry="retryMessage"
         />
@@ -511,7 +425,7 @@ onUnmounted(() => {
               >
                 <Paperclip :size="18" aria-hidden="true" />
               </button>
-              <span :class="{ 'is-error': error || composerError }">{{ composerError || error || (selectedProviderId ? "已准备 · 可添加图片或文件" : "请先选择模型") }}</span>
+              <span :class="{ 'is-error': composerError }">{{ composerError || (selectedProviderId ? "已准备 · 可添加图片或文件" : "请先选择模型") }}</span>
             </div>
             <button v-if="sending" class="send-button" type="button" aria-label="停止生成" @click="chatStore.cancel">
               <Square :size="16" />
@@ -568,42 +482,5 @@ onUnmounted(() => {
       </section>
     </main>
 
-    <aside v-if="activityPaneVisible && activeView === 'chat'" class="activity-pane" aria-label="查询活动">
-      <div class="activity-heading">
-        <div>
-          <span class="eyebrow">研究过程</span>
-          <h2>查询活动</h2>
-        </div>
-        <span class="activity-count">{{ activityGroups.length }}</span>
-      </div>
-      <div v-if="activityGroups.length === 0" class="activity-empty">
-        <Sparkles :size="22" />
-        <strong>暂无查询</strong>
-        <span>网页、工具调用和来源会显示在这里。</span>
-      </div>
-      <div v-else class="activity-list">
-        <details v-for="item in activityGroups" :key="item.id" class="activity-item" data-role="activity-item" :data-url="item.kind === 'source' ? item.url || undefined : undefined">
-          <summary>
-            <span class="activity-kind">{{ item.kind === "source" ? item.platform : "工具" }}</span>
-            <strong>{{ item.title }}<template v-if="item.kind === 'tool' && item.steps.length > 1"> · {{ item.steps.length }} 次</template></strong>
-            <small>{{ item.kind === "source" ? item.sourceLevel : (item.status === "completed" ? "已完成" : item.status === "running" ? "进行中" : "有失败") }} · {{ new Date(item.timestamp).toLocaleTimeString() }}</small>
-          </summary>
-          <div class="activity-details">
-            <template v-if="item.kind === 'source'">
-              <p v-if="item.url"><strong>URL：</strong>{{ item.url }}</p>
-              <p v-if="item.details">{{ item.details }}</p>
-              <button v-if="item.url" type="button" class="activity-open-link" @click="openActivityUrl(item.url)">在新窗口打开网页</button>
-            </template>
-            <template v-else>
-              <div v-for="(step, index) in item.steps" :key="`${step.id}:${index}`" class="activity-step" data-role="activity-step">
-                <strong>{{ step.title }}</strong>
-                <small>{{ step.status === "completed" ? "已完成" : step.status === "running" ? "进行中" : "失败" }} · {{ new Date(step.timestamp).toLocaleTimeString() }}</small>
-                <p v-if="step.details">{{ step.details }}</p>
-              </div>
-            </template>
-          </div>
-        </details>
-      </div>
-    </aside>
   </div>
 </template>

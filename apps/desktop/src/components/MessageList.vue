@@ -1,9 +1,12 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from "vue";
-import { AlertCircle, Bot, FileText, RotateCw, UserRound } from "@lucide/vue";
+import { AlertCircle, ExternalLink, FileText, RotateCw } from "@lucide/vue";
 
+import { openBrowserTab } from "@/api/browser";
 import MarkdownMessage from "@/components/MarkdownMessage.vue";
-import type { Message } from "@/types/chat";
+import type { AssistantSegment, ConversationStep, Message } from "@/types/chat";
+import travelerDialogueAvatarUrl from "@/assets/traveler-dialogue-avatar.png";
+import paimonDialogueAvatarUrl from "@/assets/paimon-dialogue-avatar.png";
 
 interface RetryProvider {
   id: string;
@@ -14,9 +17,11 @@ const props = withDefaults(defineProps<{
   messages: Message[];
   streaming: boolean;
   retrying?: boolean;
+  retryNotice?: string;
   providers?: RetryProvider[];
   selectedProviderId?: string | null;
-}>(), { providers: () => [], selectedProviderId: null });
+  stepsByRun?: Record<string, ConversationStep[]>;
+}>(), { providers: () => [], selectedProviderId: null, stepsByRun: () => ({}) });
 const emit = defineEmits<{
   retry: [messageId: string];
   selectProvider: [providerId: string];
@@ -118,6 +123,52 @@ function errorSummary(error?: string) {
 function selectRetryProvider(event: Event) {
   emit("selectProvider", (event.target as HTMLSelectElement).value);
 }
+
+function stepStatus(status?: string | null) {
+  if (status === "running") return "进行中";
+  if (status === "failed") return "失败";
+  return "已完成";
+}
+
+function assistantSegments(message: Message): AssistantSegment[] {
+  if (message.role !== "assistant") return [];
+  if (message.segments?.length) return message.segments;
+  return message.content ? [{ id: `legacy-text-${message.id}`, kind: "text", content: message.content }] : [];
+}
+
+type AssistantBlock =
+  | { id: string; kind: "text"; segment: AssistantSegment }
+  | { id: string; kind: "tools"; segments: AssistantSegment[] };
+
+function assistantBlocks(message: Message): AssistantBlock[] {
+  const blocks: AssistantBlock[] = [];
+  for (const segment of assistantSegments(message)) {
+    if (segment.kind !== "tool") {
+      blocks.push({ id: segment.id, kind: "text", segment });
+      continue;
+    }
+    const previous = blocks[blocks.length - 1];
+    if (previous?.kind === "tools") previous.segments.push(segment);
+    else blocks.push({ id: `tool-batch-${segment.id}`, kind: "tools", segments: [segment] });
+  }
+  return blocks;
+}
+
+function latestTool(segments: AssistantSegment[]) {
+  return segments[segments.length - 1];
+}
+
+function hasRunningTool(segments: AssistantSegment[]) {
+  return segments.some((segment) => segment.status === "running");
+}
+
+function legacyStepsFor(message: Message) {
+  return message.role === "assistant" && message.runId ? props.stepsByRun[message.runId] ?? [] : [];
+}
+
+async function openSource(url?: string) {
+  if (url) await openBrowserTab(url);
+}
 </script>
 
 <template>
@@ -143,10 +194,10 @@ function selectRetryProvider(event: Event) {
       </div>
     </nav>
     <div ref="listRef" class="message-list" aria-live="polite" @scroll="handleScroll">
-    <article v-for="message in messages" :key="message.id" class="chat-message" :class="`is-${message.role}`" :data-message-id="message.id">
-      <div class="message-avatar" aria-hidden="true">
-        <UserRound v-if="message.role === 'user'" :size="18" />
-        <Bot v-else :size="18" />
+    <template v-for="message in messages" :key="message.id">
+    <article class="chat-message" :class="`is-${message.role}`" :data-message-id="message.id">
+      <div class="message-avatar" :class="{ 'is-traveler': message.role === 'user', 'is-paimon': message.role !== 'user' }" aria-hidden="true">
+        <img :src="message.role === 'user' ? travelerDialogueAvatarUrl : paimonDialogueAvatarUrl" alt="" />
       </div>
       <div class="message-body">
         <span class="message-author">{{ message.role === "user" ? "旅行者" : "派蒙" }}</span>
@@ -162,11 +213,65 @@ function selectRetryProvider(event: Event) {
             </div>
           </template>
         </div>
-        <MarkdownMessage v-if="message.content" :content="message.content" />
-        <div v-if="message.status === 'error'" class="run-error" role="alert">
+        <template v-if="message.role === 'assistant' && assistantSegments(message).length">
+          <template v-for="block in assistantBlocks(message)" :key="block.id">
+            <MarkdownMessage v-if="block.kind === 'text' && block.segment.content" :content="block.segment.content" />
+            <details
+              v-else-if="block.kind === 'tools'"
+              class="conversation-tool-batch conversation-steps"
+              :class="{ 'is-running': hasRunningTool(block.segments) }"
+              data-role="conversation-tool-batch"
+            >
+              <summary>
+                <span class="conversation-step-dot" :class="`is-${hasRunningTool(block.segments) ? 'running' : 'completed'}`" aria-hidden="true"></span>
+                <span class="tool-batch-label">{{ hasRunningTool(block.segments) ? '正在执行' : '已执行' }}</span>
+                <strong class="tool-batch-current">{{ latestTool(block.segments)?.toolName || '查询步骤' }}</strong>
+                <span class="tool-batch-count">{{ block.segments.length }} 个工具</span>
+              </summary>
+              <div class="conversation-tool-list">
+                <details v-for="segment in block.segments" :key="segment.id" class="conversation-tool" data-role="conversation-tool">
+                  <summary>
+                    <span class="conversation-step-dot" :class="`is-${segment.status || 'completed'}`" aria-hidden="true"></span>
+                    <strong>{{ segment.toolName || '查询步骤' }}</strong>
+                    <span>{{ stepStatus(segment.status) }}</span>
+                  </summary>
+                  <div class="conversation-step-list">
+                    <p v-if="segment.details">{{ segment.details }}</p>
+                    <button v-if="segment.url" type="button" @click="openSource(segment.url)"><ExternalLink :size="14" aria-hidden="true" />在新窗口打开</button>
+                  </div>
+                </details>
+              </div>
+            </details>
+          </template>
+        </template>
+        <MarkdownMessage v-else-if="message.content" :content="message.content" />
+        <template v-if="!message.segments?.length && legacyStepsFor(message).length">
+          <details v-for="step in legacyStepsFor(message)" :key="step.id" class="conversation-steps" data-role="conversation-steps">
+            <summary>
+              <span class="conversation-step-dot" :class="`is-${step.status}`" aria-hidden="true"></span>
+              <strong>查询步骤</strong>
+              <span>{{ stepStatus(step.status) }}</span>
+            </summary>
+            <div class="conversation-step-list">
+              <strong>{{ step.title }}</strong>
+              <p v-if="step.details">{{ step.details }}</p>
+              <button v-if="step.url" type="button" @click="openSource(step.url)"><ExternalLink :size="14" aria-hidden="true" />在新窗口打开</button>
+            </div>
+          </details>
+        </template>
+        <div
+          v-if="retryNotice && message.status === 'streaming' && message.id.startsWith('pending:')"
+          class="retry-notice"
+          role="status"
+          aria-live="polite"
+        >
+          <RotateCw :size="14" aria-hidden="true" />
+          <span>{{ retryNotice }}</span>
+        </div>
+        <div v-if="message.status === 'error' || message.status === 'cancelled'" class="run-error" :class="{ 'is-cancelled': message.status === 'cancelled' }" role="alert">
           <div class="run-error-heading">
             <AlertCircle :size="18" aria-hidden="true" />
-            <strong>请求失败</strong>
+            <strong>{{ message.status === "cancelled" ? "已停止生成" : "请求失败" }}</strong>
           </div>
           <p>{{ errorSummary(message.error) }}</p>
           <details v-if="message.error">
@@ -197,6 +302,7 @@ function selectRetryProvider(event: Event) {
         </span>
       </div>
     </article>
+    </template>
     <span data-role="message-list-end" aria-hidden="true"></span>
     </div>
   </div>

@@ -34,6 +34,45 @@ describe("MessageList", () => {
     expect(wrapper.emitted("retry")).toEqual([["pending:run-1"]]);
   });
 
+  it("shows a stopped reply with an in-place retry action", async () => {
+    const wrapper = mount(MessageList, {
+      props: {
+        streaming: false,
+        messages: [{
+          id: "pending:run-1",
+          conversationId: "c1",
+          role: "assistant",
+          content: "",
+          status: "cancelled",
+          error: "已停止生成，可以重试这条回复",
+          retryable: true,
+          retryMessageId: "m1",
+          createdAt: "1",
+        }],
+      },
+    });
+
+    expect(wrapper.text()).toContain("已停止生成");
+    await wrapper.get('button[aria-label="重试这条消息"]').trigger("click");
+    expect(wrapper.emitted("retry")).toEqual([["pending:run-1"]]);
+  });
+
+  it("places the retry notice under the active assistant reply", () => {
+    const wrapper = mount(MessageList, {
+      props: {
+        streaming: true,
+        retryNotice: "请求失败，正在进行第 3 次重试…",
+        messages: [
+          { id: "u1", conversationId: "c1", role: "user", content: "问题", createdAt: "1" },
+          { id: "pending:run-1", conversationId: "c1", role: "assistant", content: "已有内容", status: "streaming", createdAt: "2" },
+        ],
+      },
+    });
+
+    expect(wrapper.get(".retry-notice").text()).toContain("第 3 次重试");
+    expect(wrapper.find(".composer-status").exists()).toBe(false);
+  });
+
   it("lets the user choose another model before retrying a failed message", async () => {
     const wrapper = mount(MessageList, {
       props: {
@@ -122,5 +161,94 @@ describe("MessageList", () => {
     await wrapper.get('.message-list').trigger("scroll");
 
     expect(list.scrollTop).toBe(100);
+  });
+
+  it("renders steps collapsed inside the matching assistant reply", async () => {
+    const wrapper = mount(MessageList, {
+      props: {
+        streaming: false,
+        messages: [
+          { id: "u1", conversationId: "c1", role: "user", content: "查一下", createdAt: "1" },
+          { id: "a1", conversationId: "c1", role: "assistant", runId: "run-1", content: "结果", createdAt: "2" },
+        ],
+        stepsByRun: {
+          "run-1": [{ id: "s1", runId: "run-1", kind: "source", title: "网页详情", status: "completed", timestamp: "2", url: "https://example.com", platform: "网页" }],
+        },
+      },
+    });
+
+    const steps = wrapper.get('[data-role="conversation-steps"]');
+    expect((steps.element as HTMLDetailsElement).open).toBe(false);
+    expect(steps.text()).toContain("查询步骤");
+    await steps.get("summary").trigger("click");
+    expect(steps.text()).toContain("网页详情");
+  });
+
+  it("renders assistant text and each tool step in chronological order", () => {
+    const wrapper = mount(MessageList, {
+      props: {
+        streaming: false,
+        messages: [{
+          id: "a1",
+          conversationId: "c1",
+          role: "assistant",
+          content: "第一段\n\n第二段\n\n第三段",
+          createdAt: "1",
+          segments: [
+            { id: "text-1", kind: "text", content: "第一段" },
+            { id: "tool-1", kind: "tool", content: "", toolName: "搜索网页", status: "completed" },
+            { id: "tool-1b", kind: "tool", content: "", toolName: "筛选结果", status: "completed" },
+            { id: "text-2", kind: "text", content: "第二段" },
+            { id: "tool-2", kind: "tool", content: "", toolName: "读取详情", status: "completed" },
+            { id: "text-3", kind: "text", content: "第三段" },
+          ],
+        }],
+      },
+    });
+
+    const body = wrapper.get(".message-body").element;
+    const timeline = Array.from(body.querySelectorAll(":scope > .markdown-content, :scope > .conversation-tool-batch"));
+    expect(timeline.map((item) => item.textContent?.trim())).toEqual([
+      "第一段",
+      "已执行筛选结果2 个工具搜索网页已完成筛选结果已完成",
+      "第二段",
+      "已执行读取详情1 个工具读取详情已完成",
+      "第三段",
+    ]);
+    expect(body.querySelectorAll(':scope > [data-role="conversation-tool-batch"]')).toHaveLength(2);
+    expect(body.querySelectorAll('[data-role="conversation-tool-batch"] [data-role="conversation-tool"]')).toHaveLength(3);
+  });
+
+  it("uses the traveler avatar for user messages and the app icon for Paimon", () => {
+    const wrapper = mount(MessageList, {
+      props: {
+        streaming: false,
+        messages: [
+          { id: "u1", conversationId: "c1", role: "user", content: "问题", createdAt: "1" },
+          { id: "a1", conversationId: "c1", role: "assistant", content: "回答", createdAt: "2" },
+        ],
+      },
+    });
+    const avatars = wrapper.findAll(".message-avatar img");
+    expect(avatars[0].attributes("src")).toContain("traveler-dialogue-avatar");
+    expect(avatars[1].attributes("src")).toContain("paimon-dialogue-avatar");
+  });
+
+  it("places traveler messages on the right and Paimon messages on the left", () => {
+    const wrapper = mount(MessageList, {
+      props: {
+        streaming: false,
+        messages: [
+          { id: "u1", conversationId: "c1", role: "user", content: "问题", createdAt: "1" },
+          { id: "a1", conversationId: "c1", role: "assistant", content: "回答", createdAt: "2" },
+        ],
+      },
+    });
+
+    const messages = wrapper.findAll(".chat-message");
+    expect(messages[0].classes()).toContain("is-user");
+    expect(messages[1].classes()).toContain("is-assistant");
+    expect(messages[0].find(".message-avatar").classes()).toContain("is-traveler");
+    expect(messages[1].find(".message-avatar").classes()).toContain("is-paimon");
   });
 });

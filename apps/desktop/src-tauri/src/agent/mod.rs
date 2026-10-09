@@ -4,3 +4,6 @@ pub mod openai_backend;
 pub mod research;
 pub mod runtime;
 pub mod state;
+
+#[cfg(all(test, windows))]
+mod live_tests;

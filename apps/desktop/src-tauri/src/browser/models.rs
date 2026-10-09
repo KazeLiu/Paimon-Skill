@@ -52,6 +52,7 @@ pub struct PageSnapshot {
 }
 
 impl PageSnapshot {
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn bounded(
         title: String,
         url: String,

@@ -4,7 +4,9 @@ use async_trait::async_trait;
 use tokio_util::sync::CancellationToken;
 
 use crate::providers::{
-    models::{ChatMessage, ProviderConfig, StreamEvent, ToolCall, ToolDefinition},
+    models::{
+        CapabilityDiagnostic, ChatMessage, ProviderConfig, StreamEvent, ToolCall, ToolDefinition,
+    },
     openai_compatible::OpenAiCompatibleClient,
 };
 
@@ -70,10 +72,18 @@ impl OpenAiModelBackend {
             api_key,
         })
     }
+
+    pub fn take_diagnostics(&self) -> Vec<CapabilityDiagnostic> {
+        self.client.take_diagnostics()
+    }
 }
 
 #[async_trait]
 impl ModelBackend for OpenAiModelBackend {
+    fn take_diagnostics(&self) -> Vec<CapabilityDiagnostic> {
+        OpenAiModelBackend::take_diagnostics(self)
+    }
+
     async fn next_turn(
         &self,
         messages: &[ChatMessage],

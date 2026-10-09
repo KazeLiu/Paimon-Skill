@@ -61,16 +61,6 @@ describe("App shell", () => {
     });
   }
 
-  it("collapses and restores the query activity pane", async () => {
-    const wrapper = mountApp();
-
-    expect(wrapper.get(".app-shell").classes()).not.toContain("activity-pane-collapsed");
-    await wrapper.get('button[aria-label="收起查询面板"]').trigger("click");
-    expect(wrapper.get(".app-shell").classes()).toContain("activity-pane-collapsed");
-
-    await wrapper.get('button[aria-label="打开查询面板"]').trigger("click");
-    expect(wrapper.get(".app-shell").classes()).not.toContain("activity-pane-collapsed");
-  });
 
   it("opens the information source directory instead of a browser page", async () => {
     const wrapper = mountApp();
@@ -89,23 +79,17 @@ describe("App shell", () => {
     expect(wrapper.find(".workspace-header").exists()).toBe(false);
   });
 
-  it("hides research activity on the information source page", async () => {
+  it("hides the old research activity pane on the information source page", async () => {
     const wrapper = mountApp();
 
     await wrapper.get('[data-action="open-sources"]').trigger("click");
 
     expect(wrapper.find('.activity-pane').exists()).toBe(false);
-    expect(wrapper.get('.app-shell').classes()).toContain('activity-pane-collapsed');
   });
 
-  it("shows research activity only on the chat page", async () => {
+  it("does not render a separate research activity pane", async () => {
     const wrapper = mountApp();
-    expect(wrapper.find('.activity-pane').exists()).toBe(true);
-
-    await wrapper.get('.rail-settings').trigger('click');
-
     expect(wrapper.find('.activity-pane').exists()).toBe(false);
-    expect(wrapper.get('.app-shell').classes()).toContain('activity-pane-collapsed');
   });
 
   it("opens diagnostics from the settings tabs", async () => {
@@ -244,41 +228,4 @@ describe("App shell", () => {
     expect(wrapper.find('[role="listbox"]').exists()).toBe(false);
   });
 
-  it("renders research activity newest first and exposes details", async () => {
-    Object.assign(state.chat!, {
-      toolActivities: [
-        { conversationId: "c1", runId: "run-1", toolName: "read_url", status: "completed", createdAt: "2026-08-20T10:00:00Z", details: "旧工具详情" },
-      ],
-      sources: [
-        { title: "新网页", url: "https://example.com/new", sourceLevel: "web", platform: "网页", capturedAt: "2026-08-20T11:00:00Z" },
-      ],
-    });
-    const wrapper = mountApp();
-    const items = wrapper.findAll('[data-role="activity-item"]');
-
-    expect(items[0].text()).toContain("新网页");
-    expect(items[0].attributes("data-url")).toBe("https://example.com/new");
-    expect(wrapper.text()).toContain("旧工具详情");
-  });
-
-  it("groups adjacent tool activity into one expandable workflow card", () => {
-    Object.assign(state.chat!, {
-      toolActivities: [
-        { conversationId: "c1", runId: "run-1", toolName: "browser_close_page", status: "running", createdAt: "2026-08-20T10:00:04Z" },
-        { conversationId: "c1", runId: "run-1", toolName: "browser_close_page", status: "completed", createdAt: "2026-08-20T10:00:03Z" },
-        { conversationId: "c1", runId: "run-1", toolName: "browser_close_page", status: "running", createdAt: "2026-08-20T10:00:02Z" },
-        { conversationId: "c1", runId: "run-1", toolName: "browser_close_page", status: "completed", createdAt: "2026-08-20T10:00:01Z" },
-      ],
-      sources: [],
-      toolRuns: [],
-    });
-
-    const wrapper = mountApp();
-    const items = wrapper.findAll('[data-role="activity-item"]');
-
-    expect(items).toHaveLength(1);
-    expect(items[0].text()).toContain("browser_close_page");
-    expect(items[0].text()).toContain("4 次");
-    expect(items[0].findAll('[data-role="activity-step"]')).toHaveLength(4);
-  });
 });

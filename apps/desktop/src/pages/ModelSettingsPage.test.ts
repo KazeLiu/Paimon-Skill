@@ -45,6 +45,7 @@ describe("ModelSettingsPage", () => {
           responseBody: '{"error":{"message":"Service temporarily unavailable"}}',
           parseError: "模型返回 HTTP 503：Service temporarily unavailable",
           truncated: false,
+          requestBody: '{"model":"gpt-5.2","stream":false}',
         },
       },
     });
@@ -65,6 +66,7 @@ describe("ModelSettingsPage", () => {
     expect(details.text()).toContain("/v1/responses");
     expect(details.text()).toContain("Service temporarily unavailable");
     expect(details.text()).not.toContain("secret-key");
+    expect(details.text()).toContain("请求正文");
   });
 
   it("fetches, selects, saves, and tests a Responses provider", async () => {
@@ -132,6 +134,26 @@ describe("ModelSettingsPage", () => {
     expect(wrapper.text()).toContain("已安全保存 API Key");
     expect((wrapper.get('[data-field="api-key"]').element as HTMLInputElement).value).toBe("");
     expect((wrapper.get('[data-field="model-id"]').element as HTMLSelectElement).value).toBe("gpt-5.2");
+  });
+
+  it("marks one saved provider as the default for new conversations", async () => {
+    vi.mocked(listProviders).mockResolvedValue([{
+      config: {
+        id: "saved", name: "已保存模型", baseUrl: "https://relay.example/v1", model: "gpt-5.2",
+        secretRef: "provider:saved", timeoutMs: 30000, streaming: true, toolCalling: true, enabled: true,
+      },
+      hasApiKey: true,
+    }]);
+    const wrapper = mount(ModelSettingsPage);
+    await flushPromises();
+
+    await wrapper.get('[data-field="default-provider"]').setValue(true);
+    await wrapper.get('[data-action="save-provider"]').trigger("click");
+    await flushPromises();
+
+    expect(saveProvider).toHaveBeenCalledWith(expect.objectContaining({
+      config: expect.objectContaining({ id: "saved", isDefault: true }),
+    }));
   });
 
   it("starts with empty endpoint fields and requires model discovery", async () => {

@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+use crate::agent::runtime::AssistantSegment;
 use crate::attachments::ChatAttachment;
 use crate::tools::registry::ToolResult;
 
@@ -22,6 +23,10 @@ pub struct Message {
     pub content: String,
     #[serde(default)]
     pub attachments: Vec<ChatAttachment>,
+    #[serde(default)]
+    pub run_id: Option<String>,
+    #[serde(default)]
+    pub segments: Vec<AssistantSegment>,
     pub created_at: String,
 }
 

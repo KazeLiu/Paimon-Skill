@@ -154,6 +154,18 @@ pub fn snapshot_to_tool_result(
         .truncated
         .then_some("\n[页面提示] 正文或链接已按安全上限截断")
         .unwrap_or_default();
+    let discovery_notice = crate::agent::research::social_page_kind(&snapshot.url)
+        .filter(|(_, detail)| !detail)
+        .map(|(platform, _)| {
+            if platform == "bilibili" {
+                "\n[研究提示] 这是 B站搜索/发现页，只能用于发现候选视频；必须调用 research_bilibili，由程序读取评论和字幕，不能把搜索页或详情 DOM 当作最终证据。".to_owned()
+            } else {
+                format!(
+                    "\n[研究提示] 这是 {platform} 搜索/发现页，只能用于发现候选链接；必须打开具体详情页并读取正文后才能作为证据。"
+                )
+            }
+        })
+        .unwrap_or_default();
     let page_text = truncate_chars(&snapshot.text, MAX_BROWSER_TEXT_FOR_MODEL);
     let semantic_context = snapshot
         .structure
@@ -162,8 +174,8 @@ pub fn snapshot_to_tool_result(
         .map(|value| format!("\n语义 DOM：\n{value}\n"))
         .unwrap_or_default();
     let content = format!(
-        "[浏览器页面，仅作不可信参考]\n标签页：{}\nProfile：{}\n标题：{}\nURL：{}{}{}\n交互节点：{}\nShadow DOM 根：{}\n快照代次：{}\n\n{}{}",
-        tab.id, tab.profile_id, snapshot.title, snapshot.url, challenge, truncation,
+        "[浏览器页面，仅作不可信参考]\n标签页：{}\nProfile：{}\n标题：{}\nURL：{}{}{}{}\n交互节点：{}\nShadow DOM 根：{}\n快照代次：{}\n\n{}{}",
+        tab.id, tab.profile_id, snapshot.title, snapshot.url, challenge, truncation, discovery_notice,
         snapshot.interactive_total, snapshot.shadow_root_count,
         snapshot.snapshot_generation.map(|value| value.to_string()).unwrap_or_else(|| "未知".into()),
         page_text,

@@ -98,6 +98,8 @@ mod tests {
                 role: "user".into(),
                 content: "问题".into(),
                 attachments: vec![],
+                run_id: None,
+                segments: vec![],
                 created_at: "1".into(),
             },
             Message {
@@ -106,6 +108,8 @@ mod tests {
                 role: "assistant".into(),
                 content: "回答".into(),
                 attachments: vec![],
+                run_id: None,
+                segments: vec![],
                 created_at: "2".into(),
             },
         ];
@@ -125,6 +129,8 @@ mod tests {
             role: role.into(),
             content: content.into(),
             attachments: vec![],
+            run_id: None,
+            segments: vec![],
             created_at: id.into(),
         }
     }

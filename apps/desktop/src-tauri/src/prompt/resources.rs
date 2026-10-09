@@ -38,7 +38,7 @@ pub fn load_fragments(resource_dir: &Path) -> Result<Vec<PromptFragment>, String
             "工具使用规则",
             "工具权限、来源记录和失败处理。",
             "tool-policy.md",
-            30,
+            50,
         ),
     ];
 
@@ -59,7 +59,7 @@ pub fn load_fragments(resource_dir: &Path) -> Result<Vec<PromptFragment>, String
             &skill_path,
             SKILL_RESOURCE_ID,
             "原神攻略规则",
-            "来自仓库 skills/genshin-build-wiki/SKILL.md 的可复用规则。",
+            "来自仓库 SKILL.md 正文的领域规则；执行方式由桌面端工具规则适配。",
             true,
             40,
         )?);
@@ -76,8 +76,11 @@ fn read_fragment(
     enabled_by_default: bool,
     order: u32,
 ) -> Result<PromptFragment, String> {
-    let content = std::fs::read_to_string(path)
+    let mut content = std::fs::read_to_string(path)
         .map_err(|error| format!("无法读取提示词资源 {id}：{error}"))?;
+    if id == SKILL_RESOURCE_ID {
+        content = skill_body(&content).to_owned();
+    }
     Ok(PromptFragment {
         id: id.into(),
         title: title.into(),
@@ -88,9 +91,92 @@ fn read_fragment(
     })
 }
 
+fn skill_body(content: &str) -> &str {
+    let content = content.trim_start_matches('\u{feff}');
+    let Some(metadata) = content
+        .strip_prefix("---\r\n")
+        .or_else(|| content.strip_prefix("---\n"))
+    else {
+        return content;
+    };
+    for delimiter in ["\n---\r\n", "\n---\n"] {
+        if let Some(end) = metadata.find(delimiter) {
+            return metadata[end + delimiter.len()..].trim_start();
+        }
+    }
+    content
+}
+
 #[cfg(test)]
 mod tests {
-    use super::resolve_resource_dir;
+    use super::{load_fragments, resolve_resource_dir, skill_body};
+    use crate::prompt::{composer::compose_prompt, models::PromptSettings};
+
+    fn packaged_fragments() -> Vec<crate::prompt::models::PromptFragment> {
+        let root = tempfile::tempdir().unwrap();
+        let prompts = root.path().join("prompts");
+        std::fs::create_dir_all(&prompts).unwrap();
+        let maintained = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        for filename in ["base-system.md", "paimon-persona.md", "tool-policy.md"] {
+            std::fs::copy(
+                maintained.join("../resources/prompts").join(filename),
+                prompts.join(filename),
+            )
+            .unwrap();
+        }
+        let rules = root.path().join("rules/genshin-build-wiki");
+        std::fs::create_dir_all(&rules).unwrap();
+        std::fs::copy(
+            maintained.join("../../../skills/genshin-build-wiki/SKILL.md"),
+            rules.join("SKILL.md"),
+        )
+        .unwrap();
+        load_fragments(&prompts).unwrap()
+    }
+
+    #[test]
+    fn loads_skill_body_without_discovery_frontmatter() {
+        let fragments = packaged_fragments();
+        let skill = fragments
+            .iter()
+            .find(|fragment| fragment.id == "genshin-build-wiki")
+            .unwrap();
+        assert!(skill.content.starts_with("# 原神攻略与图鉴查询"));
+        assert!(skill.content.contains("第一方资料"));
+    }
+
+    #[test]
+    fn skill_body_handles_windows_line_endings_and_utf8_bom() {
+        assert_eq!(
+            skill_body("\u{feff}---\r\nname: sample\r\n---\r\n\r\n# 正文"),
+            "# 正文"
+        );
+    }
+
+    #[test]
+    fn skill_body_keeps_plain_markdown_and_unclosed_metadata() {
+        for content in ["# 正文\n---\n内容", "---\nname: sample\n# 未闭合"] {
+            assert_eq!(skill_body(content), content);
+        }
+    }
+
+    #[test]
+    fn desktop_tool_policy_follows_shared_skill_and_survives_disabling_it() {
+        let fragments = packaged_fragments();
+        let prompt = compose_prompt(&fragments, &PromptSettings::default()).unwrap();
+        assert_eq!(prompt.resource_ids.last().unwrap(), "tool-policy");
+        assert!(prompt.text.contains("read_bwiki_page"));
+        let settings = PromptSettings {
+            disabled_resource_ids: vec!["genshin-build-wiki".into()],
+            ..PromptSettings::default()
+        };
+        let prompt = compose_prompt(&fragments, &settings).unwrap();
+        assert!(!prompt
+            .resource_ids
+            .iter()
+            .any(|id| id == "genshin-build-wiki"));
+        assert!(prompt.text.contains("read_bwiki_page"));
+    }
 
     #[test]
     fn resolves_resources_from_tauri_dev_up_directory() {

@@ -22,6 +22,7 @@ const MAX_VISUAL_IMAGE_REDIRECTS: usize = 5;
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
+#[allow(dead_code)]
 pub enum ModelTaskKind {
     TextSummary,
     VisualDescription,
@@ -30,6 +31,7 @@ pub enum ModelTaskKind {
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
 pub struct ModelTaskRequest {
     pub kind: ModelTaskKind,
     pub instruction: String,
@@ -571,6 +573,7 @@ mod tests {
             streaming: false,
             tool_calling: false,
             enabled: true,
+            is_default: false,
         }
     }
 

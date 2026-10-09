@@ -6,3 +6,7 @@ export interface LogEntry {
   message: string;
   details: Record<string, unknown> | null;
 }
+
+export interface DiagnosticsSettings {
+  verbose: boolean;
+}
